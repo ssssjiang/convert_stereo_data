@@ -119,10 +119,10 @@ output_df = merged_df[[
     'gyro_odo_roll',      # roll
     'gyro_odo_pitch',      # pitch
     'gyro_odo_yaw',      # yaw
-    'left_count',
-    'right_count',
     'speed_v',
     'speed_w',
+    'left_count',
+    'right_count',
 ]].copy()
 
 # 添加 data_type 列，并设置为 'gyroOdo'
@@ -158,7 +158,7 @@ output_df['timestamp'] = output_df['timestamp'].astype(int) // 1_000_000
 print("\n最终输出的数据预览:")
 print(output_df.head())
 
-# 将整合后的数据输出到 CSV 文件
-output_df.to_csv(output_file, index=False, encoding='utf-8-sig')
+# 将整合后的数据输出到 CSV 文件，以空格分隔, header以#开头
+output_df.to_csv(output_file, index=False, sep=' ', header=True, float_format='%.6f')
 
 print(f"\n数据已成功整合并输出到 {output_file}")
