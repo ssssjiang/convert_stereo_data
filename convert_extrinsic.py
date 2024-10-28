@@ -57,25 +57,33 @@ T_body_imu = np.array([
 ])
 
 # T_odo_cam0 = T_odo_body * T_body_cam0
-T_odo_cam0 = np.dot(T_body_odo, T_body_cam0)
+T_odo_cam0 = np.dot(np.linalg.inv(T_body_odo), T_body_cam0)
 T_cam0_odo = np.linalg.inv(T_odo_cam0)
 # convert T_cam0_odo[:3][:3] to quaternion
 q_cam0_odo = tf.quaternion_from_matrix(T_cam0_odo)
 
 # T_odo_cam1 = T_odo_body * T_body_cam1
-T_odo_cam1 = np.dot(T_body_odo, T_body_cam1)
+T_odo_cam1 = np.dot(np.linalg.inv(T_body_odo), T_body_cam1)
 T_cam1_odo = np.linalg.inv(T_odo_cam1)
 # convert T_cam1_odo[:3][:3] to quaternion
 q_cam1_odo = tf.quaternion_from_matrix(T_cam1_odo)
 
-T_cam0_cam1 = np.dot(T_cam0_odo, T_odo_cam1)
+T_cam0_cam1 = np.dot(np.linalg.inv(T_body_cam0), T_body_cam1)
 q_cam0_cam1 = tf.quaternion_from_matrix(T_cam0_cam1)
 
-T_cam1_cam0 = np.dot(T_cam1_odo, T_odo_cam0)
+T_cam1_cam0 = np.dot(np.linalg.inv(T_body_cam1), T_body_cam0)
 q_cam1_cam0 = tf.quaternion_from_matrix(T_cam1_cam0)
 
 # T_odo_imu = T_odo_body * T_body_imu
-T_odo_imu = np.dot(T_body_odo, T_body_imu)
+T_odo_imu = np.dot(np.linalg.inv(T_body_odo), T_body_imu)
+
+T_imu_cam0 = np.dot(np.linalg.inv(T_body_imu), T_body_cam0)
+q_imu_cam0 = tf.quaternion_from_matrix(T_imu_cam0)
+
+T_imu_cam1 = np.dot(np.linalg.inv(T_body_imu), T_body_cam1)
+q_imu_cam1 = tf.quaternion_from_matrix(T_imu_cam1)
+
+T_imu_body = np.linalg.inv(T_body_imu)
 
 print("T_odo_cam0:")
 print(T_odo_cam0)
@@ -99,3 +107,12 @@ print(T_cam1_cam0)
 
 print("\nT_odo_imu:")
 print(T_odo_imu)
+
+print("\nT_imu_cam0:")
+print(T_imu_cam0)
+
+print("\nT_imu_cam1:")
+print(T_imu_cam1)
+
+print("\nT_imu_body:")
+print(T_imu_body)
