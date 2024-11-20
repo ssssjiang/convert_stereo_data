@@ -100,7 +100,7 @@ print(wheel_df.head())
 
 # 合并数据集，基于时间戳
 merged_df = pd.merge(
-    imu_df[['timestamp', 'accel_x', 'accel_y', 'accel_z', 'gyro_odo_roll', 'gyro_odo_pitch', 'gyro_odo_yaw']],
+    imu_df[['timestamp', 'accel_x', 'accel_y', 'accel_z', 'angular_vel_roll', 'angular_vel_pitch', 'angular_vel_yaw']],
     wheel_df[['timestamp', 'left_count', 'right_count', 'speed_v', 'speed_w']],
     on='timestamp',
     how='inner'  # 仅保留两个数据集中都存在的时间戳
@@ -108,7 +108,7 @@ merged_df = pd.merge(
 
 # 查看合并后的数据
 print("\n合并后的数据预览:")
-print(merged_df.head())
+print(merged_df.tail())
 
 # 选择并重命名所需的列
 output_df = merged_df[[
@@ -116,9 +116,9 @@ output_df = merged_df[[
     'accel_x',
     'accel_y',
     'accel_z',
-    'gyro_odo_roll',      # roll
-    'gyro_odo_pitch',      # pitch
-    'gyro_odo_yaw',      # yaw
+    'angular_vel_roll',      # roll
+    'angular_vel_pitch',      # pitch
+    'angular_vel_yaw',      # yaw
     'speed_v',
     'speed_w',
     'left_count',
@@ -156,7 +156,7 @@ output_df['timestamp'] = output_df['timestamp'].astype(int) // 1_000_000
 
 # 查看最终输出的数据
 print("\n最终输出的数据预览:")
-print(output_df.head())
+print(output_df.tail())
 
 # 将整合后的数据输出到 CSV 文件，以空格分隔, header以#开头
 output_df.to_csv(output_file, index=False, sep=' ', header=True, float_format='%.6f')
