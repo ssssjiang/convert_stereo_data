@@ -1,3 +1,5 @@
+# grep 'gyroOdo' RRLDR_fprintf.log | cut -d ' ' -f 1,12-14,18-20  > imu.txt
+
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
