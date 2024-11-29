@@ -28,7 +28,6 @@ k4 = 0.0026870339959659795
 brg_image_path = '/home/roborock/下载/20241121095001014_R1098D43000318_2024112120DEV_rgb_images/encpic_000041/SL_R_71291_IR_0_NoPose_800X900.png'
 bgr_image = cv2.imread(brg_image_path)
 
-# 替换为您的相机内参和畸变系数
 camera_matrix = np.array([[fx, 0, cx],
                           [0, fy, cy],
                           [0,  0,  1]])  # 相机矩阵
@@ -36,29 +35,11 @@ dist_coeffs = np.array([k1, k2, k3, k4])  # 畸变系数
 
 h, w = bgr_image.shape[:2]
 
-# # ==============================
-# # Calculate FOV Before De-distortion
-# # ==============================
-#
-# # Compute the maximum radius from the image center to the image corners
-# corners = np.array([[0, 0], [w, 0], [0, h], [w, h]], dtype=np.float32)
-# radii = np.sqrt((corners[:, 0] - cx)**2 + (corners[:, 1] - cy)**2)
-# r_max = np.max(radii)
-#
-# # Assuming equidistant projection model: r = f * theta
-# # Compute theta_max
-# theta_max = r_max / fx  # Using fx as f (assuming fx ≈ fy)
-#
-# # Compute FOV before de-distortion (in degrees)
-# fov_before = 2 * theta_max * (180 / np.pi)
-# print("FOV before de-distortion: {:.2f} degrees".format(fov_before))
-
-
 # 复制原始相机矩阵
 new_camera_matrix = camera_matrix.copy()
 
 # 设置缩放因子（小于1表示缩小，保留更多黑边；大于1表示放大，裁剪更多图像）
-zoom_factor = 0.55  # 您可以根据需要调整这个值
+zoom_factor = 0.5  # 您可以根据需要调整这个值
 
 # 调整焦距以改变缩放
 new_camera_matrix[0, 0] *= zoom_factor  # 调整 fx

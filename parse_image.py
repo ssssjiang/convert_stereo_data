@@ -8,8 +8,8 @@ import matplotlib.pyplot as plt
 
 # /home/roborock/下载/20241122144248412_R1098D43000318_2024112228DEV 20ms
 # 文件夹路径
-yuv_folder_path = '/home/roborock/test/encpic_000089/'
-output_folder_path = ('/home/roborock/test/encpic_000089_rgb')
+yuv_folder_path = '/home/roborock/roborock/rradb_4.4.3/000400.20241129073853439_R1098D43000318_2024112952DEV'
+output_folder_path = ('/home/roborock/roborock/rradb_4.4.3/000400.20241129073853439_R1098D43000318_2024112952DEV_rgb')
 
 # 创建保存输出图像的文件夹
 os.makedirs(output_folder_path, exist_ok=True)
@@ -44,9 +44,9 @@ for root, dirs, files in os.walk(yuv_folder_path):
             # 保存 BGR 图像
             cv2.imwrite(output_image_path, bgr_image)
 
-            # Display the image using matplotlib (alternative to cv2.imshow)
-            plt.imshow(cv2.cvtColor(bgr_image, cv2.COLOR_BGR2RGB))
-            plt.title('BGR Image')
-            plt.show()
+            # # Display the image using matplotlib (alternative to cv2.imshow)
+            # plt.imshow(cv2.cvtColor(bgr_image, cv2.COLOR_BGR2RGB))
+            # plt.title('BGR Image')
+            # plt.show()
 
 print("YUV 文件已全部转换并保存为 RGB 图像。")
