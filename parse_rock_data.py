@@ -22,7 +22,8 @@ def parse_args():
             '  step2: Handle Bin47ToText and log file processing.\n'
             '  step3: Perform cleanup of intermediate files.\n'
             '  step4: Parse YUV images to PNG format.\n'
-            '  step5: Reorganize images into structured directories.'
+            '  step5: Reorganize images into structured directories.\n'
+            '  step6: Check timestamp gaps between images.'
         )
     )
     return parser.parse_args()
@@ -116,6 +117,142 @@ def reorganize_images(input_folder, output_folder):
                     shutil.move(src_file, dest_file)
                     print(f"Moved {src_file} to {dest_file}")
 
+def save_logs_to_file(logs, file_path):
+    """
+    Save logs to a specified file.
+    :param logs: List of log messages to save
+    :param file_path: Path to the log file
+    """
+    with open(file_path, 'w') as file:
+        for log in logs:
+            file.write(log + '\n')
+
+def check_timestamp_gaps(timestamps, log_file):
+    """
+    Check gaps between image timestamps.
+    Ensure that timestamps for stereo data are correctly paired and continuous at 15Hz.
+    :param timestamps: List of image timestamps
+    :param log_file: Path to save the log for abnormal gaps
+    """
+    if os.path.exists(log_file):
+        os.remove(log_file)
+
+    timestamps.sort()
+    gaps = np.diff(timestamps)
+    valid_gaps = 1000 // 15  # Expected gap in milliseconds for 15Hz
+
+    abnormal_gaps = []
+    logs = []
+    for i, gap in enumerate(gaps):
+        if gap > valid_gaps + 34:  # Allow slight deviation for larger gaps
+            message = f"Warning: Gap too large: {gap}ms between timestamps {timestamps[i]} and {timestamps[i+1]}."
+            print(message)
+            logs.append(message)
+            abnormal_gaps.append((timestamps[i], timestamps[i + 1], gap))
+        elif gap < valid_gaps - 16 and gap > 0:  # Allow slight deviation for smaller gaps
+            message = f"Warning: Gap too small: {gap}ms between timestamps {timestamps[i]} and {timestamps[i+1]}."
+            print(message)
+            logs.append(message)
+            abnormal_gaps.append((timestamps[i], timestamps[i + 1], gap))
+
+    save_logs_to_file(logs, log_file)
+    return abnormal_gaps
+
+def validate_stereo_timestamps(timestamps, log_file):
+    """
+    Validate that stereo data has paired timestamps.
+    :param timestamps: List of image timestamps
+    :param log_file: Path to save the log for unpaired timestamps
+    """
+    if os.path.exists(log_file):
+        os.remove(log_file)
+
+    timestamp_counts = {}
+    logs = []
+    for ts in timestamps:
+        if ts in timestamp_counts:
+            timestamp_counts[ts] += 1
+        else:
+            timestamp_counts[ts] = 1
+
+    unpaired_timestamps = [ts for ts, count in timestamp_counts.items() if count != 2]
+
+    if unpaired_timestamps:
+        message = "Warning: Unpaired timestamps detected:"
+        print(message)
+        logs.append(message)
+        for ts in unpaired_timestamps:
+            log_message = f"Timestamp {ts} has {timestamp_counts[ts]} occurrences (expected 2)."
+            print(log_message)
+            logs.append(log_message)
+    else:
+        message = "All timestamps are properly paired."
+        print(message)
+        logs.append(message)
+
+    save_logs_to_file(logs, log_file)
+
+def parse_timestamps_from_files(root_folder):
+    """
+    Parse timestamps from PNG files first; if none found, fallback to YUV files.
+    :param root_folder: Root folder containing image data
+    :return: List of parsed timestamps
+    """
+    timestamps = []
+    png_files_found = False
+
+    # First, look for PNG files
+    for root, dirs, files in os.walk(root_folder):
+        for filename in files:
+            if filename.endswith('.png'):
+                png_files_found = True
+                try:
+                    timestamp = int(filename.split('.')[0])  # Expect format: timestamp.png
+                    timestamps.append(timestamp)
+                except ValueError:
+                    print(f"Invalid timestamp in file name: {filename}")
+
+    # If no PNG files are found, fallback to YUV files
+    if not png_files_found:
+        for root, dirs, files in os.walk(root_folder):
+            for filename in files:
+                if filename.endswith('.yuv'):
+                    parts = filename.split('_')
+                    if len(parts) >= 4:
+                        try:
+                            timestamp = int(parts[2])
+                            timestamps.append(timestamp)
+                        except ValueError:
+                            print(f"Invalid timestamp in file name: {filename}")
+
+    return timestamps
+
+def check_timestamps(root_folder):
+    """
+    Check timestamp gaps and validate stereo pairing.
+    :param root_folder: Root folder containing image data
+      """
+    timestamps = parse_timestamps_from_files(root_folder)
+
+    if not timestamps:
+        print("No image timestamps found.")
+        return
+
+    print(f"Total images: {len(timestamps)}")
+
+    unpaired_log_file = os.path.join(root_folder, "unpaired_timestamps.log")
+    gap_log_file = os.path.join(root_folder, "timestamp_gaps.log")
+
+    # Validate stereo timestamps
+    validate_stereo_timestamps(timestamps, unpaired_log_file)
+
+    # Check for abnormal gaps
+    abnormal_gaps = check_timestamp_gaps(timestamps, gap_log_file)
+    if abnormal_gaps:
+        print("Abnormal timestamp gaps detected. Check the log file for details:", gap_log_file)
+    else:
+        print("All timestamp gaps are within the acceptable range.")
+
 def main():
     args = parse_args()
     root_folder = args.root_folder
@@ -125,6 +262,9 @@ def main():
     steps_to_execute = set(args.steps)
 
     mnt_folder = os.path.join(root_folder, 'mnt')
+    yuv_folder_path = next(
+        (os.path.join(root_folder, folder) for folder in os.listdir(root_folder) if folder.endswith('DEV')), None)
+    rgb_folder_path = yuv_folder_path + '_rgb'
 
     if not steps_to_execute or 'step1' in steps_to_execute:
         # Step 1.1: Copy process_mt_log to root folder
@@ -149,7 +289,7 @@ def main():
 
     if not steps_to_execute or 'step3' in steps_to_execute:
         # Step 3: Cleanup
-        for file_path in [bin47totext_dest, os.path.join(root_folder, 'RRLDR_binId4.log')]:
+        for file_path in [process_mt_log_dest, bin47totext_dest, os.path.join(root_folder, 'RRLDR_binId4.log')]:
             if os.path.exists(file_path):
                 os.remove(file_path)
                 print(f"Removed {file_path}")
@@ -165,7 +305,6 @@ def main():
         if not yuv_folder_path or not os.path.isdir(yuv_folder_path):
             raise FileNotFoundError(f"No DEV folder found in {root_folder}")
 
-        rgb_folder_path = yuv_folder_path + '_rgb'
         parse_yuv_image(yuv_folder_path, rgb_folder_path, image_width, image_height)
 
     if not steps_to_execute or 'step5' in steps_to_execute:
@@ -176,6 +315,14 @@ def main():
             raise FileNotFoundError(f"No DEV_rgb folder found in {root_folder}")
 
         reorganize_images(rgb_folder_path, root_folder)
+
+    # step 6: check timestamp gap between images
+    # normal hz is 15hz, so the gap should be 66ms
+    # if the gap is larger than 100ms, we should check the reason
+    # if the gap is smaller than 50ms, we should check the reason
+    if not steps_to_execute or 'step6' in steps_to_execute:
+        check_timestamps(root_folder)
+
 
 if __name__ == '__main__':
     main()
