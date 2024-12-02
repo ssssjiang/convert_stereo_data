@@ -132,19 +132,21 @@ T_CR_B = np.array([
     [0.9957452, 0.0220714, 0.0894670, -0.1670000],
     [0.0, 0.0, 0.0, 1.0]
 ])
+# convert to
+
 
 T_B_CR = np.linalg.inv(T_CR_B)
 print("\nT_B_CR:")
 print(T_B_CR)
 
-T = np.array([
-    [0.0, -1.0, 0.0, 0],
-    [0, 0.0, -1, 0],
-    [1, 0.0, 0, 0],
-    [0.0, 0.0, 0.0, 1.0]
-])
-
-T_B_CR = np.dot(T, T_B_CR)
+# T = np.array([
+#     [0.0, -1.0, 0.0, 0],
+#     [0, 0.0, -1, 0],
+#     [1, 0.0, 0, 0],
+#     [0.0, 0.0, 0.0, 1.0]
+# ])
+#
+# T_B_CR = np.dot(T, T_B_CR)
 
 eular_B_CR = tf.euler_from_matrix(T_B_CR, axes='sxyz')
 print(eular_B_CR)
@@ -166,3 +168,7 @@ print(eular_B_CL)
 
 eular_CL_CR = tf.euler_from_matrix(T_CL_CR, axes='sxyz')
 print(eular_CL_CR)
+
+T_B_CL = np.dot(T_B_CR, np.linalg.inv(T_CL_CR))
+print("\nT_B_CL:")
+print(T_B_CL)

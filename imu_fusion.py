@@ -1,93 +1,102 @@
-import pandas as pd
+import os
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
-from sympy import euler
-
+from ahrs.filters import Madgwick
 import transformations as tf
 
+def load_imu_data(file_path):
+    """
+    Load IMU data from a CSV file.
+    :param file_path: Path to the IMU data file
+    :return: Tuple (timestamps, gyro_data, acc_data)
+    """
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"IMU data file not found: {file_path}")
 
-# Load the CSV file
-file_path = '/home/roborock/datasets/roborock/stereo/rr_stereo_grass_01/imu.txt'
-imu_data = pd.read_csv(file_path, sep=' ', header=None)
-# imu_data.columns = ['timestamp', 'accel_x', 'accel_y', 'accel_z', 'euler_roll', 'euler_pitch', 'euler_yaw', 'gyro_x', 'gyro_y', 'gyro_z']
-imu_data.columns = ['timestamp', 'accel_x', 'accel_y', 'accel_z', 'gyro_x', 'gyro_y', 'gyro_z']
-gyro_data = imu_data[['gyro_x', 'gyro_y', 'gyro_z']].values
-acc_data = imu_data[['accel_x', 'accel_y', 'accel_z']].values
-# euler_roll = imu_data['euler_roll'].values * 180 / np.pi
-# euler_pitch = imu_data['euler_pitch'].values * 180 / np.pi
-# euler_yaw = imu_data['euler_yaw'].values * 180 / np.pi
+    imu_data = pd.read_csv(file_path, sep=' ', header=None)
+    imu_data.columns = ['timestamp', 'accel_x', 'accel_y', 'accel_z', 'gyro_x', 'gyro_y', 'gyro_z']
+    timestamps = imu_data['timestamp'].values
+    gyro_data = imu_data[['gyro_x', 'gyro_y', 'gyro_z']].values
+    acc_data = imu_data[['accel_x', 'accel_y', 'accel_z']].values
 
-from ahrs.filters import Madgwick, EKF
+    return timestamps, gyro_data, acc_data
 
-sampling_rate = 140.0  # Hz
-dt = 1.0 / sampling_rate  # 时间间隔
+def compute_euler_angles(timestamps, gyro_data, acc_data, sampling_rate=140.0, gain=0.033):
+    """
+    Compute Euler angles using the Madgwick filter.
+    :param timestamps: Array of timestamps
+    :param gyro_data: Array of gyroscope data
+    :param acc_data: Array of accelerometer data
+    :param sampling_rate: Sampling rate of the IMU data
+    :param gain: Gain for the Madgwick filter
+    :return: Array of Euler angles in degrees
+    """
+    dt = 1.0 / sampling_rate
+    q = np.array([1.0, 0.0, 0.0, 0.0])  # Initial quaternion
+    euler_angles = []
+    madgwick = Madgwick(frequency=sampling_rate, gain=gain)
 
-# 初始四元数
-q = np.array([1.0, 0.0, 0.0, 0.0])
+    for i in range(len(acc_data)):
+        try:
+            q = madgwick.updateIMU(q, gyr=gyro_data[i], acc=acc_data[i])
+            q_h = [q[1], q[2], q[3], q[0]]  # Convert quaternion format
+            euler = tf.euler_from_quaternion(q_h, axes='sxyz')
+            euler_angles.append(euler)
+        except Exception as e:
+            print(f"Error processing sample {i}: {e}")
+            euler_angles.append([np.nan, np.nan, np.nan])
 
-# 存储姿态（Roll, Pitch, Yaw）
-euler_angles = []
+    return np.degrees(euler_angles)
 
-# 初始化 Madgwick 滤波器
-madgwick = Madgwick(frequency=sampling_rate, gain=0.00001)
+def plot_euler_angles(timestamps, euler_angles):
+    """
+    Plot Euler angles over time.
+    :param timestamps: Array of timestamps
+    :param euler_angles: Array of Euler angles (roll, pitch, yaw)
+    """
+    try:
+        plt.figure(figsize=(15, 10), dpi=300)
+        plt.plot(timestamps, euler_angles[:, 0], label='Roll', alpha=0.7)
+        plt.plot(timestamps, euler_angles[:, 1], label='Pitch', alpha=0.7)
+        plt.plot(timestamps, euler_angles[:, 2], label='Yaw', alpha=0.7)
+        plt.title('Euler Angles over Time')
+        plt.xlabel('Time (s)')
+        plt.ylabel('Angle (degrees)')
+        plt.legend()
+        plt.grid()
+        plt.show()
 
-# 滤波器迭代
-for i in range(len(acc_data)):
-    q = madgwick.updateIMU(q, gyr=gyro_data[i], acc=acc_data[i])
-    q_h = [q[1], q[2], q[3], q[0]]  # 四元数转换为 [x, y, z, w] 格式
-    euler = tf.euler_from_quaternion(q_h, axes='sxyz')  # 将四元数转换为欧拉角
-    euler_angles.append(euler)
-
-# 打印结果
-euler_angles = np.degrees(euler_angles)  # 转换为角度制
-for i, angles in enumerate(euler_angles):
-    print(f"Sample {i+1}: Roll={angles[0]:.2f}, Pitch={angles[1]:.2f}, Yaw={angles[2]:.2f}")
-
-# 绘制欧拉角
-# x 轴为时间，y 轴为角度
-# Plot the data with higher resolution
-plt.figure(figsize=(15, 10), dpi=300)  # Set figure size and DPI for higher resolution
-
-# Plot Accelerometer Data
-plt.subplot(211)
-plt.plot(imu_data['timestamp'], euler_angles[:, 0], label='roll', alpha=0.7)
-plt.plot(imu_data['timestamp'], euler_angles[:, 1], label='pitch', alpha=0.7)
-plt.plot(imu_data['timestamp'], euler_angles[:, 2], label='yaw', alpha=0.7)
-plt.title('Euler Angle')
-plt.xlabel('Time')
-plt.ylabel('Angle')
-plt.grid()
-#
-# plt.subplot(212)
-# plt.plot(imu_data['timestamp'], euler_roll, label='roll', alpha=0.7)
-# plt.plot(imu_data['timestamp'], euler_pitch, label='pitch', alpha=0.7)
-# plt.plot(imu_data['timestamp'], euler_yaw, label='yaw', alpha=0.7)
-# plt.title('Euler Angle')
-# plt.xlabel('Time')
-# plt.ylabel('Angle')
-# plt.grid()
-#
-# plt.legend()
-# plt.show()
-#
-#
-# # plot different euler angles
-# plt.figure(figsize=(15, 10), dpi=300)  # Set figure size and
-# plt.plot(imu_data['timestamp'], euler_roll - euler_angles[:, 0], label='roll', alpha=0.7)
-# plt.plot(imu_data['timestamp'], euler_pitch - euler_angles[:, 1], label='pitch', alpha=0.7)
-# plt.plot(imu_data['timestamp'], euler_yaw - euler_angles[:, 2], label='yaw', alpha=0.7)
-# plt.title('Euler Angle')
-# plt.xlabel('Time')
-# plt.ylabel('Angle')
-# plt.grid()
-
-plt.legend()
-plt.show()
+    except Exception as e:
+        print(f"Error plotting Euler angles: {e}")
 
 
-# eular angle and 30cm / s speed, plot the trajectory
-# 1. get the speed
-# 2. get the pose
-# 3. plot the trajectory
+def parse_args():
+    """
+    Parse command-line arguments.
+    """
+    import argparse
+    parser = argparse.ArgumentParser(description="IMU Data Fusion and Euler Angles Visualization")
+    parser.add_argument('--file_path', type=str, required=True, help='Path to the IMU data file')
+    parser.add_argument('--sampling_rate', type=float, default=140.0, help='Sampling rate of the IMU data (Hz)')
+    parser.add_argument('--gain', type=float, default=0.00001, help='Gain for the Madgwick filter')
+    return parser.parse_args()
 
+def main():
+    # file_path = '/home/roborock/datasets/roborock/stereo/rr_stereo_grass_01/imu.txt'
+    args = parse_args()
+    file_path = args.file_path
+    sampling_rate = args.sampling_rate
+    gain = args.gain
 
+    try:
+        timestamps, gyro_data, acc_data = load_imu_data(file_path)
+        euler_angles = compute_euler_angles(timestamps, gyro_data, acc_data, sampling_rate=sampling_rate, gain=gain)
+        plot_euler_angles(timestamps, euler_angles)
+    except FileNotFoundError as fnf_error:
+        print(fnf_error)
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+if __name__ == '__main__':
+    main()
