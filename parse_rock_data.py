@@ -262,9 +262,6 @@ def main():
     steps_to_execute = set(args.steps)
 
     mnt_folder = os.path.join(root_folder, 'mnt')
-    yuv_folder_path = next(
-        (os.path.join(root_folder, folder) for folder in os.listdir(root_folder) if folder.endswith('DEV')), None)
-    rgb_folder_path = yuv_folder_path + '_rgb'
 
     if not steps_to_execute or 'step1' in steps_to_execute:
         # Step 1.1: Copy process_mt_log to root folder
@@ -305,6 +302,7 @@ def main():
         if not yuv_folder_path or not os.path.isdir(yuv_folder_path):
             raise FileNotFoundError(f"No DEV folder found in {root_folder}")
 
+        rgb_folder_path = yuv_folder_path + '_rgb'
         parse_yuv_image(yuv_folder_path, rgb_folder_path, image_width, image_height)
 
     if not steps_to_execute or 'step5' in steps_to_execute:
