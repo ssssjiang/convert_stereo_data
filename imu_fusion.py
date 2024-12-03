@@ -56,7 +56,7 @@ def plot_euler_angles(timestamps, euler_angles):
     :param euler_angles: Array of Euler angles (roll, pitch, yaw)
     """
     try:
-        plt.figure(figsize=(15, 10), dpi=300)
+        plt.figure(figsize=(15, 10), dpi=150)
         plt.plot(timestamps, euler_angles[:, 0], label='Roll', alpha=0.7)
         plt.plot(timestamps, euler_angles[:, 1], label='Pitch', alpha=0.7)
         plt.plot(timestamps, euler_angles[:, 2], label='Yaw', alpha=0.7)
@@ -79,7 +79,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="IMU Data Fusion and Euler Angles Visualization")
     parser.add_argument('--file_path', type=str, required=True, help='Path to the IMU data file')
     parser.add_argument('--sampling_rate', type=float, default=140.0, help='Sampling rate of the IMU data (Hz)')
-    parser.add_argument('--gain', type=float, default=0.00001, help='Gain for the Madgwick filter')
+    parser.add_argument('--gain', type=float, default=0.3, help='Gain for the Madgwick filter')
     return parser.parse_args()
 
 def main():
