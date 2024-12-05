@@ -1,6 +1,4 @@
 import os
-import shutil
-import subprocess
 import cv2
 import numpy as np
 
@@ -9,13 +7,34 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description='Process log files and images.'
     )
-    parser.add_argument('--root_folder', type=str, required=True, help='Path to the root folder')
+    parser.add_argument('--root_folder', type=str, help='Path to the root folder')
+    parser.add_argument('--yuv_folder', type=str, help='Path to the YUV folder')
+    parser.add_argument('--yuv_file', type=str, help='Path to a single YUV file')
     parser.add_argument('--image_width', type=int, default=800, help='Image width')
     parser.add_argument('--image_height', type=int, default=600, help='Image height')
-    parser.add_argument('--NID', type=str, default='941bd09bda0d6d57', help='NID value to use in commands')
     return parser.parse_args()
 
-def parse_yuv_image(yuv_folder_path, output_folder_path, width, height):
+def parse_yuv_image(yuv_file_path, output_image_path, width, height):
+    try:
+        with open(yuv_file_path, 'rb') as yuv_file:
+            yuv_data = yuv_file.read()
+
+        yuv_image = np.frombuffer(yuv_data, dtype=np.uint8)
+        target_size = height * 3 // 2 * width
+        if len(yuv_image) > target_size:
+            print(f"Warning: Data size {len(yuv_image)} exceeds target size {target_size}. Truncating data.")
+            yuv_image = yuv_image[:target_size]
+        elif len(yuv_image) < target_size:
+            raise ValueError(f"Data size {len(yuv_image)} is smaller than target size {target_size}.")
+
+        yuv_image = yuv_image.reshape((height * 3 // 2, width))
+        bgr_image = cv2.cvtColor(yuv_image, cv2.COLOR_YUV2BGR_NV12)
+        cv2.imwrite(output_image_path, bgr_image)
+        print(f"Converted: {yuv_file_path} -> {output_image_path}")
+    except Exception as e:
+        print(f"Error processing file {yuv_file_path}: {e}")
+
+def process_folder(yuv_folder_path, output_folder_path, width, height):
     if not os.path.exists(yuv_folder_path):
         raise FileNotFoundError(f"YUV folder not found: {yuv_folder_path}")
 
@@ -37,34 +56,41 @@ def parse_yuv_image(yuv_folder_path, output_folder_path, width, height):
                     print(f"Image already converted: {output_image_path}. Skipping.")
                     continue
 
-                try:
-                    with open(yuv_file_path, 'rb') as yuv_file:
-                        yuv_data = yuv_file.read()
-
-                    yuv_image = np.frombuffer(yuv_data, dtype=np.uint8)
-                    yuv_image = yuv_image.reshape((height * 3 // 2, width))
-
-                    bgr_image = cv2.cvtColor(yuv_image, cv2.COLOR_YUV2BGR_NV12)
-                    cv2.imwrite(output_image_path, bgr_image)
-                    print(f"Converted: {yuv_file_path} -> {output_image_path}")
-                except Exception as e:
-                    print(f"Error processing file {yuv_file_path}: {e}")
+                parse_yuv_image(yuv_file_path, output_image_path, width, height)
 
 def main():
     args = parse_args()
-    root_folder = args.root_folder
     image_width = args.image_width
     image_height = args.image_height
 
-    # Parse YUV images
-    yuv_folder_path = next(
-        (os.path.join(root_folder, folder) for folder in os.listdir(root_folder) if folder.endswith('DEV')), None)
+    if args.yuv_file:
+        # Process single YUV file
+        output_image_path = args.yuv_file.replace('.yuv', '.png')
+        parse_yuv_image(args.yuv_file, output_image_path, image_width, image_height)
 
-    if not yuv_folder_path or not os.path.isdir(yuv_folder_path):
-        raise FileNotFoundError(f"No DEV folder found in {root_folder}")
+    elif args.yuv_folder:
+        # Process YUV folder
+        rgb_folder_path = args.yuv_folder + '_rgb'
+        process_folder(args.yuv_folder, rgb_folder_path, image_width, image_height)
 
-    rgb_folder_path = yuv_folder_path + '_rgb'
-    parse_yuv_image(yuv_folder_path, rgb_folder_path, image_width, image_height)
+    elif args.root_folder:
+        # Search and process all DEV folders under root folder
+        dev_folders = [
+            os.path.join(args.root_folder, folder)
+            for folder in os.listdir(args.root_folder)
+            if folder.endswith('DEV') and os.path.isdir(os.path.join(args.root_folder, folder))
+        ]
+
+        if not dev_folders:
+            raise FileNotFoundError(f"No DEV folders found in {args.root_folder}")
+
+        for dev_folder in dev_folders:
+            print(f"Processing folder: {dev_folder}")
+            rgb_folder_path = dev_folder + '_rgb'
+            process_folder(dev_folder, rgb_folder_path, image_width, image_height)
+
+    else:
+        raise ValueError("You must specify --yuv_file, --yuv_folder, or --root_folder")
 
 if __name__ == '__main__':
     main()

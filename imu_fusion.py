@@ -4,11 +4,13 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from ahrs.filters import Madgwick
 import transformations as tf
+import argparse
 
-def load_imu_data(file_path):
+def load_imu_data(file_path, start_time):
     """
-    Load IMU data from a CSV file.
+    Load IMU data from a CSV file and filter by start timestamp.
     :param file_path: Path to the IMU data file
+    :param start_time: Start timestamp for filtering
     :return: Tuple (timestamps, gyro_data, acc_data)
     """
     if not os.path.exists(file_path):
@@ -16,6 +18,12 @@ def load_imu_data(file_path):
 
     imu_data = pd.read_csv(file_path, sep=' ', header=None)
     imu_data.columns = ['timestamp', 'accel_x', 'accel_y', 'accel_z', 'gyro_x', 'gyro_y', 'gyro_z']
+
+    # Filter data by start timestamp
+    imu_data = imu_data[imu_data['timestamp'] >= start_time]
+    if imu_data.empty:
+        raise ValueError("No data points exist after the specified start_time.")
+
     timestamps = imu_data['timestamp'].values
     gyro_data = imu_data[['gyro_x', 'gyro_y', 'gyro_z']].values
     acc_data = imu_data[['accel_x', 'accel_y', 'accel_z']].values
@@ -61,7 +69,7 @@ def plot_euler_angles(timestamps, euler_angles):
         plt.plot(timestamps, euler_angles[:, 1], label='Pitch', alpha=0.7)
         plt.plot(timestamps, euler_angles[:, 2], label='Yaw', alpha=0.7)
         plt.title('Euler Angles over Time')
-        plt.xlabel('Time (s)')
+        plt.xlabel('Time (ms)')
         plt.ylabel('Angle (degrees)')
         plt.legend()
         plt.grid()
@@ -70,16 +78,15 @@ def plot_euler_angles(timestamps, euler_angles):
     except Exception as e:
         print(f"Error plotting Euler angles: {e}")
 
-
 def parse_args():
     """
     Parse command-line arguments.
     """
-    import argparse
     parser = argparse.ArgumentParser(description="IMU Data Fusion and Euler Angles Visualization")
     parser.add_argument('--file_path', type=str, required=True, help='Path to the IMU data file')
-    parser.add_argument('--sampling_rate', type=float, default=140.0, help='Sampling rate of the IMU data (Hz)')
-    parser.add_argument('--gain', type=float, default=0.3, help='Gain for the Madgwick filter')
+    parser.add_argument('--sampling_rate', type=float, default=50.0, help='Sampling rate of the IMU data (Hz)')
+    parser.add_argument('--gain', type=float, default=0.03, help='Gain for the Madgwick filter')
+    parser.add_argument('--start_time', type=float, required=True, help="Start timestamp for analysis (in milliseconds).")
     return parser.parse_args()
 
 def main():
@@ -88,13 +95,16 @@ def main():
     file_path = args.file_path
     sampling_rate = args.sampling_rate
     gain = args.gain
+    start_time = args.start_time
 
     try:
-        timestamps, gyro_data, acc_data = load_imu_data(file_path)
+        timestamps, gyro_data, acc_data = load_imu_data(file_path, start_time)
         euler_angles = compute_euler_angles(timestamps, gyro_data, acc_data, sampling_rate=sampling_rate, gain=gain)
         plot_euler_angles(timestamps, euler_angles)
     except FileNotFoundError as fnf_error:
         print(fnf_error)
+    except ValueError as val_error:
+        print(val_error)
     except Exception as e:
         print(f"An error occurred: {e}")
 
