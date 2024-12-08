@@ -1,7 +1,6 @@
 import numpy as np
 import pandas as pd
 import transformations as tf
-from convert_stereo_data.convert_extrinsic import T_body_imu
 
 # 定义文件路径
 slampose_file = '/home/roborock/datasets/roborock/stereo/2020-08-14/slampose/data.csv'
