@@ -42,6 +42,8 @@ def save_images_to_file_with_params(image_paths, output_file, folder_path, save_
     :param save_absolute: 是否保存绝对路径（True: 绝对路径, False: 相对路径）
     """
     with open(output_file, 'w') as f:
+        # resort the image paths by timestamp (camerax/timestamp.png)
+        image_paths.sort(key=lambda x: int(x.split('/')[-1].split('.')[0].split('_')[-1]))
         for path in image_paths:
             if save_absolute:
                 file_path = path  # 绝对路径
@@ -49,7 +51,8 @@ def save_images_to_file_with_params(image_paths, output_file, folder_path, save_
                 file_path = os.path.relpath(path, folder_path)  # 相对路径
 
             # 获取相机参数
-            camera_params = get_camera_parameters(file_path)
+            # camera_params = get_camera_parameters(file_path)
+            camera_params = ""
             if camera_params:
                 f.write(f"{file_path} {camera_params}\n")  # 保存路径和参数
             else:

@@ -31,7 +31,7 @@ import argparse
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Undistort an image and calculate FOV after de-distortion.")
-    parser.add_argument('--image_path', type=str, required=True help="Path to the input image.")
+    parser.add_argument('--image_path', type=str, required=True, help="Path to the input image.")
     parser.add_argument('--fx', type=float, default=260.063551592498, help="Focal length fx of the camera.")
     parser.add_argument('--fy', type=float, default=259.9904115230021, help="Focal length fy of the camera.")
     parser.add_argument('--cx', type=float, default=400.7237754048461, help="Principal point cx of the camera.")

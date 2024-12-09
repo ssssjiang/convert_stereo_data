@@ -1,3 +1,4 @@
+import fnmatch
 import os
 import shutil
 import subprocess
@@ -28,12 +29,29 @@ def parse_args():
     )
     return parser.parse_args()
 
-def copy_file(src_path, dest_path):
-    if not os.path.exists(dest_path):
-        shutil.copy(src_path, dest_path)
-        print(f"Copied {src_path} to {dest_path}")
+
+
+def copy_files_from_mnt(mnt_folder, dest_folder):
+    """
+    Copy all files from the mounted folder to the destination folder, skipping existing files.
+    """
+    for root, dirs, files in os.walk(mnt_folder):
+        for filename in files:
+            src_file = os.path.join(root, filename)
+            dest_file = os.path.join(dest_folder, filename)
+            copy_file_with_check(src_file, dest_file)
+
+
+def copy_file_with_check(src_file, dest_file):
+    """
+    Check if the destination file exists, and if not, copy the file.
+    """
+    if not os.path.exists(dest_file):
+        shutil.copy(src_file, dest_file)
+        print(f"Copied {src_file} to {dest_file}")
     else:
-        print(f"File already exists: {dest_path}. Skipping.")
+        print(f"File already exists: {dest_file}. Skipping.")
+
 
 def execute_command(command, cwd, done_file):
     if not os.path.exists(done_file):
@@ -48,17 +66,46 @@ def execute_command(command, cwd, done_file):
     else:
         print(f"Command already executed: {command}. Skipping.")
 
-def copy_log_file(mnt_folder, dest_folder):
+
+def copy_log_files(dest_folder):
+    """
+    Copy log files matching specific patterns from the source folder to the destination folder.
+    """
+    log_patterns = [
+        "SLAM_fprintf.*", "SLAM_normal.*", "RRLDR_binId4.*", "RRLDR_binId7.*",
+        "slamloadmap.*", "user.*", "relocatesucc.*", "relocatemap.*"
+    ]
+
     log_file_path = None
-    for root, dirs, files in os.walk(mnt_folder):
+    for root, dirs, files in os.walk(dest_folder):
         for filename in files:
-            if filename == 'RRLDR_binId4.log':
-                log_file_path = os.path.join(root, filename)
-                shutil.copy(log_file_path, dest_folder)
-                print(f"Copied log file {log_file_path} to {dest_folder}")
-                return
+            for pattern in log_patterns:
+                if fnmatch.fnmatch(filename, pattern):
+                    log_file_path = os.path.join(root, filename)
+                    dest_log_file_path = os.path.join(dest_folder, filename)
+                    copy_file_with_check(log_file_path, dest_log_file_path)
+
     if not log_file_path:
-        raise FileNotFoundError(f"RRLDR_binId4.log not found in {mnt_folder}")
+        raise FileNotFoundError(f"No log file matching the specified patterns was found in {dest_folder}")
+
+
+def resort_log_file(dst, filename):
+    """
+    Resort the log file by the first column (assumed to be an integer).
+    """
+    output_file = os.path.join(dst, filename)
+    output_file_sorted = os.path.join(dst, filename.replace('.log', '_sort.log'))
+
+    with open(output_file, 'r') as f:
+        sorted_lines = sorted(f, key=lambda line: int(line.split(' ')[0]))
+
+    with open(output_file_sorted, 'w') as f:
+        f.writelines(sorted_lines)
+
+    os.remove(output_file)
+    os.rename(output_file_sorted, output_file)
+    print(f"Resorted {filename} and replaced the original.")
+
 
 def parse_yuv_image(yuv_folder_path, output_folder_path, width, height):
     if not os.path.exists(yuv_folder_path):
@@ -116,6 +163,7 @@ def reorganize_images(input_folder, output_folder):
 
                     shutil.move(src_file, dest_file)
                     print(f"Moved {src_file} to {dest_file}")
+
 
 def save_logs_to_file(logs, file_path):
     """
@@ -262,27 +310,33 @@ def main():
     steps_to_execute = set(args.steps)
 
     mnt_folder = os.path.join(root_folder, 'mnt')
+    process_mt_log_dest = os.path.join(root_folder, 'process_mt_log')
+    bin47totext_dest = os.path.join(root_folder, 'Bin47ToText')
 
     if not steps_to_execute or 'step1' in steps_to_execute:
         # Step 1.1: Copy process_mt_log to root folder
         process_mt_log_path = os.path.join(os.path.dirname(__file__), 'process_mt_log')
-        process_mt_log_dest = os.path.join(root_folder, 'process_mt_log')
-        copy_file(process_mt_log_path, process_mt_log_dest)
+        copy_file_with_check(process_mt_log_path, process_mt_log_dest)
 
-        # Step 1.2: Execute process_mt_log
+        # Step 1.2: Copy all log from sub-dir to root folder
+        copy_log_files(root_folder)
+
+        # Step 1.3: Execute process_mt_log
         execute_command('NID=' + NID + ' ./process_mt_log', root_folder, os.path.join(root_folder, 'process_mt_log.done'))
 
     if not steps_to_execute or 'step2' in steps_to_execute:
         # Step 2.1: Copy Bin47ToText to root folder
         bin47totext_path = os.path.join(os.path.dirname(__file__), 'Bin47ToText')
-        bin47totext_dest = os.path.join(root_folder, 'Bin47ToText')
-        copy_file(bin47totext_path, bin47totext_dest)
+        copy_file_with_check(bin47totext_path, bin47totext_dest)
 
-        # Step 2.2: Copy RRLDR_binId4.log from mnt to root folder
-        copy_log_file(mnt_folder, root_folder)
+        # Step 2.2: Copy all log from mnt to root folder
+        copy_files_from_mnt(mnt_folder, root_folder)
 
         # Step 2.3: Execute Bin47ToText
         execute_command('./Bin47ToText RRLDR_binId4.log ./', root_folder, os.path.join(root_folder, 'Bin47ToText.done'))
+
+        # Step 2.4: resort the RRLDR_fprintf.log
+        resort_log_file(root_folder, 'RRLDR_fprintf.log')
 
     if not steps_to_execute or 'step3' in steps_to_execute:
         # Step 3: Cleanup
@@ -296,8 +350,14 @@ def main():
 
     if not steps_to_execute or 'step4' in steps_to_execute:
         # Step 7: Parse YUV images
-        yuv_folder_path = next(
-            (os.path.join(root_folder, folder) for folder in os.listdir(root_folder) if folder.endswith('DEV')), None)
+        dev_folders = [
+            os.path.join(root_folder, folder)
+            for folder in os.listdir(root_folder)
+            if folder.endswith('DEV') and os.path.isdir(os.path.join(root_folder, folder))
+        ]
+
+        # Use the last DEV folder if multiple are found
+        yuv_folder_path = dev_folders[-1] if dev_folders else None
 
         if not yuv_folder_path or not os.path.isdir(yuv_folder_path):
             raise FileNotFoundError(f"No DEV folder found in {root_folder}")
