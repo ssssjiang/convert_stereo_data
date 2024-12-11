@@ -4,7 +4,7 @@
 BASE_URL="http://robotics.ethz.ch/~asl-datasets/ijrr_euroc_mav_dataset/"
 
 # 本地保存目录
-OUTPUT_DIR="./ijrr_euroc_mav_dataset"
+OUTPUT_DIR="/home/roborock/datasets/ijrr_euroc_mav_dataset"
 
 # 使用 wget 下载
 wget --recursive \
