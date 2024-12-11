@@ -37,6 +37,7 @@ def create_maplab_structure(source_dir):
 def generate_data_csv(camera_dir, camera0_csv_path, camera1_csv_path):
     """
     分别为 camera0 和 camera1 生成 data.csv 文件，并只保留时间戳重叠的项。
+    同时确保时间戳严格递增。
     """
     camera0_path = os.path.join(camera_dir, "camera0")
     camera1_path = os.path.join(camera_dir, "camera1")
@@ -54,6 +55,15 @@ def generate_data_csv(camera_dir, camera0_csv_path, camera1_csv_path):
     # 找到重叠的时间戳
     common_timestamps = sorted(set(camera0_timestamps.keys()) & set(camera1_timestamps.keys()))
 
+    # 去除重复并确保时间戳递增
+    last_timestamp = -1
+    filtered_timestamps = []
+    for timestamp in common_timestamps:
+        current_timestamp = int(timestamp)
+        if current_timestamp > last_timestamp:
+            filtered_timestamps.append(timestamp)
+            last_timestamp = current_timestamp
+
     # 分别生成 camera0 和 camera1 的 data.csv 文件
     with open(camera0_csv_path, "w", newline='') as camera0_csv, open(camera1_csv_path, "w", newline='') as camera1_csv:
         camera0_writer = csv.writer(camera0_csv)
@@ -64,7 +74,7 @@ def generate_data_csv(camera_dir, camera0_csv_path, camera1_csv_path):
         camera1_writer.writerow(["#timestamp [ns]", "filename"])
 
         # 写入重叠时间戳的文件路径，按时间戳排序
-        for timestamp in common_timestamps:
+        for timestamp in filtered_timestamps:
             camera0_writer.writerow([timestamp, camera0_timestamps[timestamp]])
             camera1_writer.writerow([timestamp, camera1_timestamps[timestamp]])
 
@@ -72,7 +82,7 @@ def generate_data_csv(camera_dir, camera0_csv_path, camera1_csv_path):
 def extract_imu_data(log_file_path, imu_file_path):
     """
     从 RRLDR_fprintf.log 提取 IMU 数据，生成 imu.csv。
-    数据格式：时间戳、陀螺仪和加速度数据
+    数据格式：时间戳、陀螺仪和加速度数据，确保时间戳严格递增。
     """
     if not os.path.exists(log_file_path):
         raise FileNotFoundError(f"{log_file_path} not found.")
@@ -87,17 +97,23 @@ def extract_imu_data(log_file_path, imu_file_path):
                 timestamp = parts[0]
                 gyro_data = parts[17:20]  # 假设第 18-20 列是陀螺仪数据
                 accel_data = parts[11:14]  # 假设第 12-14 列是加速度数据
-                imu_data.append([timestamp] + gyro_data + accel_data)
+                imu_data.append([int(timestamp)] + gyro_data + accel_data)
 
-    # 按时间戳排序
-    imu_data.sort(key=lambda x: int(x[0]))
+    # 按时间戳排序并去重
+    imu_data.sort(key=lambda x: x[0])
+    unique_imu_data = []
+    last_timestamp = -1
+    for row in imu_data:
+        if row[0] > last_timestamp:
+            unique_imu_data.append(row)
+            last_timestamp = row[0]
 
     with open(imu_file_path, "w", newline='') as csvfile:
         csvwriter = csv.writer(csvfile)
         # 写入表头
         csvwriter.writerow(["# timestamp", "gyro_x", "gyro_y", "gyro_z", "accel_x", "accel_y", "accel_z"])
         # 写入排序后的 IMU 数据
-        csvwriter.writerows(imu_data)
+        csvwriter.writerows(unique_imu_data)
 
     # plot imu data
     process_imu_data(imu_file_path, save_dir=os.path.dirname(imu_file_path))
