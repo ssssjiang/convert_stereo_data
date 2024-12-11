@@ -33,7 +33,7 @@ def get_camera_parameters(path):
     return ""
 
 
-def save_images_to_file_with_params(image_paths, output_file, folder_path, save_absolute=True):
+def save_images_to_file_with_params(image_paths, output_file, folder_path, step=1, save_absolute=True):
     """
     将图像路径及相机参数保存到文件中
     :param image_paths: 图像路径列表
@@ -44,7 +44,7 @@ def save_images_to_file_with_params(image_paths, output_file, folder_path, save_
     with open(output_file, 'w') as f:
         # resort the image paths by timestamp (camerax/timestamp.png)
         image_paths.sort(key=lambda x: int(x.split('/')[-1].split('.')[0].split('_')[-1]))
-        for path in image_paths:
+        for path in image_paths[::step]:
             if save_absolute:
                 file_path = path  # 绝对路径
             else:
@@ -74,6 +74,6 @@ if __name__ == "__main__":
     save_absolute = save_type == "1"
 
     # 保存到文件
-    save_images_to_file_with_params(images, output_file, folder_path, save_absolute=save_absolute)
+    save_images_to_file_with_params(images, output_file, folder_path, step=6, save_absolute=save_absolute)
 
     print(f"共找到 {len(images)} 张图像，路径及相机参数已保存到 {output_file} 中。")

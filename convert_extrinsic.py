@@ -163,6 +163,10 @@ T_CL_CR = np.array([
     [0.0, 0.0, 0.0, 1.0]
 ])
 
+T_CR_CL = np.linalg.inv(T_CL_CR)
+print("\nT_CR_CL:")
+print(T_CR_CL)
+
 eular_B_CL = tf.euler_from_matrix(T_B_CR *  np.linalg.inv(T_CL_CR), axes='sxyz')
 print(eular_B_CL)
 

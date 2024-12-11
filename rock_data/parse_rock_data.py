@@ -12,6 +12,8 @@ def parse_args():
     parser.add_argument('--image_width', type=int, default=800, help='Image width')
     parser.add_argument('--image_height', type=int, default=600, help='Image height')
     parser.add_argument('--NID', type=str, default='941bd09bda0d6d57', help='NID')
+    parser.add_argument("--L", type=str, default='camera0', help="Left camera directory name")
+    parser.add_argument('--R', type=str, default='camera1', help='Right camera directory name')
     parser.add_argument(
         '--steps',
         type=str,
@@ -143,7 +145,7 @@ def parse_yuv_image(yuv_folder_path, output_folder_path, width, height):
                     print(f"Error processing file {yuv_file_path}: {e}")
 
 
-def reorganize_images(input_folder, output_folder):
+def reorganize_images(input_folder, output_folder, L_folder, R_folder):
     if not os.path.exists(input_folder):
         raise FileNotFoundError(f"Input folder not found: {input_folder}")
 
@@ -152,10 +154,10 @@ def reorganize_images(input_folder, output_folder):
             if filename.endswith('.png'):
                 parts = filename.split('_')
                 if len(parts) >= 4:
-                    camera_type = 'camera0' if parts[1] == 'L' else 'camera1'
+                    camera_folder = L_folder if parts[1] == 'L' else R_folder
                     timestamp = parts[2]
 
-                    dest_folder = os.path.join(output_folder, 'camera', camera_type)
+                    dest_folder = os.path.join(output_folder, 'camera', camera_folder)
                     os.makedirs(dest_folder, exist_ok=True)
 
                     dest_file = os.path.join(dest_folder, f"{timestamp}.png")
@@ -174,6 +176,7 @@ def save_logs_to_file(logs, file_path):
     with open(file_path, 'w') as file:
         for log in logs:
             file.write(log + '\n')
+
 
 def check_timestamp_gaps(timestamps, log_file):
     """
@@ -205,6 +208,7 @@ def check_timestamp_gaps(timestamps, log_file):
 
     save_logs_to_file(logs, log_file)
     return abnormal_gaps
+
 
 def validate_stereo_timestamps(timestamps, log_file):
     """
@@ -239,6 +243,7 @@ def validate_stereo_timestamps(timestamps, log_file):
         logs.append(message)
 
     save_logs_to_file(logs, log_file)
+
 
 def parse_timestamps_from_files(root_folder):
     """
@@ -275,6 +280,7 @@ def parse_timestamps_from_files(root_folder):
 
     return timestamps
 
+
 def check_timestamps(root_folder):
     """
     Check timestamp gaps and validate stereo pairing.
@@ -301,11 +307,22 @@ def check_timestamps(root_folder):
     else:
         print("All timestamp gaps are within the acceptable range.")
 
+
+def has_yuv_files(folder_path):
+    """递归检查 folder_path 及其子目录中是否存在 .yuv 文件"""
+    for _, _, files in os.walk(folder_path):
+        if any(file.endswith('.yuv') for file in files):
+            return True
+    return False
+
+
 def main():
     args = parse_args()
     root_folder = args.root_folder
     image_width = args.image_width
     image_height = args.image_height
+    L_foler = args.L
+    R_foler = args.R
     NID = args.NID
     steps_to_execute = set(args.steps)
 
@@ -356,11 +373,15 @@ def main():
             if folder.endswith('DEV') and os.path.isdir(os.path.join(root_folder, folder))
         ]
 
-        # Use the last DEV folder if multiple are found
-        yuv_folder_path = dev_folders[-1] if dev_folders else None
+        # find the first folder containing .yuv files
+        yuv_folder_path = None
+        for folder in dev_folders:
+            if has_yuv_files(folder):
+                yuv_folder_path = folder
+                break
 
         if not yuv_folder_path or not os.path.isdir(yuv_folder_path):
-            raise FileNotFoundError(f"No DEV folder found in {root_folder}")
+            raise FileNotFoundError(f"No DEV folder (has *.yuv) found in {root_folder}")
 
         rgb_folder_path = yuv_folder_path + '_rgb'
         parse_yuv_image(yuv_folder_path, rgb_folder_path, image_width, image_height)
@@ -372,7 +393,7 @@ def main():
         if not rgb_folder_path or not os.path.isdir(rgb_folder_path):
             raise FileNotFoundError(f"No DEV_rgb folder found in {root_folder}")
 
-        reorganize_images(rgb_folder_path, root_folder)
+        reorganize_images(rgb_folder_path, root_folder, L_foler, R_foler)
 
     # step 6: check timestamp gap between images
     # normal hz is 15hz, so the gap should be 66ms

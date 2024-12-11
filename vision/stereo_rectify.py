@@ -49,8 +49,8 @@ T = np.array([-5.83901193e-02, 5.96484850e-04, 1.92816866e-04])
 # --------------------------------------------
 
 # Paths to the left and right images
-left_image_path = "/home/roborock/datasets/roborock/stereo/414-living-room/camera/camera1/24854721.png"
-right_image_path = "/home/roborock/datasets/roborock/stereo/414-living-room/camera/camera0/24854721.png"
+left_image_path = "/home/roborock/下载/images/encpic_000054/SL_R_18840977_IR_0_NoPose_800X900.png"
+right_image_path = "/home/roborock/下载/images/encpic_000054/SL_L_18840977_IR_0_NoPose_800X900.png"
 
 # Read images in grayscale
 img1 = cv2.imread(left_image_path, cv2.IMREAD_GRAYSCALE)
@@ -65,7 +65,7 @@ image_size = (img1.shape[1], img1.shape[0])  # (width, height)
 # --------------------------------------------
 # 3. Perform Stereo Rectification
 # --------------------------------------------
-zoom_factor = 0.5  # 0 < zoom_factor <= 1.0，根据需要调整
+zoom_factor = 0.3   # 0 < zoom_factor <= 1.0，根据需要调整
 
 # Perform stereo rectification using fisheye module
 R1, R2, P1, P2, Q = cv2.fisheye.stereoRectify(

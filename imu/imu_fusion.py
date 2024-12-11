@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from ahrs.filters import Madgwick
-import transformations as tf
+from .. import transformations as tf
 import argparse
 
 def load_imu_data(file_path, start_time):
