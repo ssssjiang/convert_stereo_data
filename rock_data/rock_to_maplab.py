@@ -63,10 +63,10 @@ def generate_data_csv(camera_dir, camera0_csv_path, camera1_csv_path):
         camera0_writer.writerow(["#timestamp [ns]", "filename"])
         camera1_writer.writerow(["#timestamp [ns]", "filename"])
 
-        # 写入重叠时间戳的文件路径
+        # 写入重叠时间戳的文件路径，按时间戳排序
         for timestamp in common_timestamps:
-            camera0_writer.writerow([timestamp, os.path.join("camera0", camera0_timestamps[timestamp])])
-            camera1_writer.writerow([timestamp, os.path.join("camera1", camera1_timestamps[timestamp])])
+            camera0_writer.writerow([timestamp, camera0_timestamps[timestamp]])
+            camera1_writer.writerow([timestamp, camera1_timestamps[timestamp]])
 
 
 def extract_imu_data(log_file_path, imu_file_path):
@@ -77,11 +77,9 @@ def extract_imu_data(log_file_path, imu_file_path):
     if not os.path.exists(log_file_path):
         raise FileNotFoundError(f"{log_file_path} not found.")
 
-    with open(log_file_path, "r") as logfile, open(imu_file_path, "w", newline='') as csvfile:
-        csvwriter = csv.writer(csvfile)
-        # 写入表头
-        csvwriter.writerow(["# timestamp", "gyro_x", "gyro_y", "gyro_z", "accel_x", "accel_y", "accel_z"])
+    imu_data = []
 
+    with open(log_file_path, "r") as logfile:
         for line in logfile:
             # 假设 IMU 数据格式为：<timestamp> ... gyroOdo=<gx> <gy> <gz> accelOdo=<ax> <ay> <az>
             if "gyroOdo" in line:
@@ -89,7 +87,17 @@ def extract_imu_data(log_file_path, imu_file_path):
                 timestamp = parts[0]
                 gyro_data = parts[17:20]  # 假设第 18-20 列是陀螺仪数据
                 accel_data = parts[11:14]  # 假设第 12-14 列是加速度数据
-                csvwriter.writerow([timestamp] + gyro_data + accel_data)
+                imu_data.append([timestamp] + gyro_data + accel_data)
+
+    # 按时间戳排序
+    imu_data.sort(key=lambda x: int(x[0]))
+
+    with open(imu_file_path, "w", newline='') as csvfile:
+        csvwriter = csv.writer(csvfile)
+        # 写入表头
+        csvwriter.writerow(["# timestamp", "gyro_x", "gyro_y", "gyro_z", "accel_x", "accel_y", "accel_z"])
+        # 写入排序后的 IMU 数据
+        csvwriter.writerows(imu_data)
 
     # plot imu data
     process_imu_data(imu_file_path, save_dir=os.path.dirname(imu_file_path))

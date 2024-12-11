@@ -74,6 +74,9 @@ def convert_vslam_to_tum(input_file_path, output_file_path, keyword="estimate"):
             except (ValueError, IndexError):
                 print(f"Error parsing line: {line.strip()}")
 
+    # Sort data by timestamp
+    vslam_data.sort(key=lambda x: x[0])
+
     # Convert to TUM format
     tum_data = []
     for timestamp, x, y, theta in vslam_data:
