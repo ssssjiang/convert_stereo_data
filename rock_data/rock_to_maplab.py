@@ -1,7 +1,7 @@
 import os
 import csv
 from glob import glob
-from convert_stereo_data.convert_tof_traj import convert_vslam_to_tum, plot_tum_trajectory
+from convert_tof_traj import convert_vslam_to_tum, plot_tum_trajectory
 from convert_stereo_data.imu.analyse_imu_data import process_imu_data
 
 
