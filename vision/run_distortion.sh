@@ -17,7 +17,8 @@ fi
 
 # YAML 路径
 YAML_PATH_FISHEYE="/home/roborock/下载/mower/#1Z.png_stereo_fisheye.yml"
-YAML_PATH_STANDARD="/home/roborock/下载/mower/P1_2_#1_116_Z.raw_stereo_nofix8.yml"
+YAML_PATH_STANDARD8="/home/roborock/下载/mower/P1_2_#1_116_Z.raw_stereo_nofix8.yml"
+YAML_PATH_STANDARD5="/home/roborock/下载/mower/#1Z.png_stereo_nofix5.yml"
 
 # 遍历目录中的所有 PNG 图片
 for IMAGE_PATH in "$IMAGE_DIR"/*.png; do
@@ -51,7 +52,8 @@ for IMAGE_PATH in "$IMAGE_DIR"/*.png; do
 
   # 输出文件路径
   OUTPUT_FISHEYE="$IMAGE_DIR/${IMAGE_FILENAME}_undistorted_fisheye_grid.png"
-  OUTPUT_STANDARD="$IMAGE_DIR/${IMAGE_FILENAME}_undistorted_standard_grid.png"
+  OUTPUT_STANDARD8="$IMAGE_DIR/${IMAGE_FILENAME}_undistorted_standard8_grid.png"
+  OUTPUT_STANDARD5="$IMAGE_DIR/${IMAGE_FILENAME}_undistorted_standard5_grid.png"
 
   # 检查是否需要运行 fisheye 模式
   if [[ -f "$OUTPUT_FISHEYE" && "$OVERWRITE" == "no" ]]; then
@@ -66,15 +68,28 @@ for IMAGE_PATH in "$IMAGE_DIR"/*.png; do
       -dc "$DIST_COEFFS_NODE"
   fi
 
-  # 检查是否需要运行 standard 模式
-  if [[ -f "$OUTPUT_STANDARD" && "$OVERWRITE" == "no" ]]; then
-    echo "Standard undistorted image already exists: $OUTPUT_STANDARD. Skipping..."
+  # 检查是否需要运行 standard8 模式
+  if [[ -f "$OUTPUT_STANDARD8" && "$OVERWRITE" == "no" ]]; then
+    echo "Standard8 undistorted image already exists: $OUTPUT_STANDARD8. Skipping..."
   else
-    echo "Processing standard undistortion for $IMAGE_PATH..."
+    echo "Processing standard8 undistortion for $IMAGE_PATH..."
     python distort_images_yaml.py \
       --image_path "$IMAGE_PATH" \
-      --yaml_path "$YAML_PATH_STANDARD" \
-      -m standard \
+      --yaml_path "$YAML_PATH_STANDARD8" \
+      -m standard8 \
+      -cm "$CAMERA_MATRIX_NODE" \
+      -dc "$DIST_COEFFS_NODE"
+  fi
+
+  # 检查是否需要运行 standard5 模式
+  if [[ -f "$OUTPUT_STANDARD5" && "$OVERWRITE" == "no" ]]; then
+    echo "Standard5 undistorted image already exists: $OUTPUT_STANDARD5. Skipping..."
+  else
+    echo "Processing standard5 undistortion for $IMAGE_PATH..."
+    python distort_images_yaml.py \
+      --image_path "$IMAGE_PATH" \
+      --yaml_path "$YAML_PATH_STANDARD5" \
+      -m standard5 \
       -cm "$CAMERA_MATRIX_NODE" \
       -dc "$DIST_COEFFS_NODE"
   fi

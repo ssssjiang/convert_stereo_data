@@ -191,3 +191,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     process_dataset(args.dataset_path, args.output_bag_file, args.start_time, args.end_time)
+
+
+# check tools
+# 1. rosbag info <bagfile>
+# 2. rqt_bag <bagfile>
+# 3. rosrun rosbag_editor rosbag_editor

@@ -9,7 +9,7 @@ def parse_args():
     parser.add_argument('-y', '--yaml_path', type=str, required=True, help="Path to the calibration YAML file.")
     parser.add_argument('-cm', '--camera_matrix_node', type=str, default="M1", help="Node name for camera matrix.")
     parser.add_argument('-dc', '--dist_coeffs_node', type=str, default="D1", help="Node name for distortion coefficients.")
-    parser.add_argument('-m', '--model', type=str, choices=["standard", "fisheye"], required=True, help="Distortion model to use: 'standard' or 'fisheye'.")
+    parser.add_argument('-m', '--model', type=str, choices=["standard5", "standard8", "fisheye"], required=True, help="Distortion model to use: 'standard5', 'standard8' or 'fisheye'.")
     parser.add_argument('-z', '--zoom_factor', type=float, default=0.5, help="Zoom factor for de-distortion (default: 1.0).")
     parser.add_argument('-g', '--grid_spacing', type=int, default=50, help="Spacing between grid lines in pixels.")
     return parser.parse_args()
@@ -52,7 +52,7 @@ def undistort_image(image, camera_matrix, dist_coeffs, model, zoom_factor):
         map1, map2 = cv2.fisheye.initUndistortRectifyMap(
             camera_matrix, dist_coeffs, np.eye(3), new_camera_matrix, (w, h), cv2.CV_16SC2
         )
-    else:  # standard model
+    elif model.startswith("standard"):
         print("Using standard distortion model.")
         new_camera_matrix = camera_matrix.copy()
         new_camera_matrix[0, 0] *= zoom_factor
@@ -60,6 +60,8 @@ def undistort_image(image, camera_matrix, dist_coeffs, model, zoom_factor):
         map1, map2 = cv2.initUndistortRectifyMap(
             camera_matrix, dist_coeffs, None, new_camera_matrix, (w, h), cv2.CV_16SC2
         )
+    else:
+        raise ValueError("Invalid distortion model.")
 
     undistorted_img = cv2.remap(image, map1, map2, interpolation=cv2.INTER_CUBIC, borderMode=cv2.BORDER_CONSTANT)
     return undistorted_img
@@ -95,8 +97,12 @@ def main():
     # Save the undistorted image
     if args.model == "fisheye":
         output_path = args.image_path.replace(".png", "_undistorted_fisheye_grid.png")
+    elif args.model == "standard5":
+        output_path = args.image_path.replace(".png", "_undistorted_standard5_grid.png")
+    elif args.model == "standard8":
+        output_path = args.image_path.replace(".png", "_undistorted_standard8_grid.png")
     else:
-        output_path = args.image_path.replace(".png", "_undistorted_standard_grid.png")
+        raise ValueError("Invalid distortion model.")
     cv2.imwrite(output_path, grid_image)
 
     print(f"Undistorted image with grid saved to: {output_path}")
