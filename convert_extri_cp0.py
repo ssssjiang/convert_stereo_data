@@ -2,7 +2,6 @@ import numpy as np
 import transformations as tf
 
 
-
 # T_C_B extrinsic:
 # 0.0205522,    -0.9996291,    0.0178662,    -0.0297000
 # 0.0898282,    -0.0159515,    -0.9958295,    0.0612000
@@ -58,3 +57,7 @@ print(eular_CL_CR)
 T_B_CL = np.dot(T_B_CR, np.linalg.inv(T_CL_CR))
 print("\nT_B_CL:")
 print(T_B_CL)
+
+T_CL_B =np.dot(T_CL_CR, np.linalg.inv(T_B_CR))
+print("\nT_CL_B:")
+print(T_CL_B)

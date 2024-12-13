@@ -40,11 +40,11 @@ for IMAGE_PATH in "$IMAGE_DIR"/*.png; do
 
   # 解析文件名并设置相机矩阵和畸变系数节点
   if [[ "$IMAGE_PATH" == *IR0* ]]; then
-    CAMERA_MATRIX_NODE="M1"
-    DIST_COEFFS_NODE="D1"
-  elif [[ "$IMAGE_PATH" == *IR1* ]]; then
     CAMERA_MATRIX_NODE="M2"
     DIST_COEFFS_NODE="D2"
+  elif [[ "$IMAGE_PATH" == *IR1* ]]; then
+    CAMERA_MATRIX_NODE="M1"
+    DIST_COEFFS_NODE="D1"
   else
     echo "Skipping file without 'IR0' or 'IR1' in name: $IMAGE_PATH"
     continue

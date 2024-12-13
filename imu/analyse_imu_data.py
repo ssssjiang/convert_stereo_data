@@ -7,6 +7,7 @@ from scipy.fft import fft, fftfreq
 
 def process_imu_data(file_path, cutoff_frequency=10.0, sampling_rate=50.0, order=2, start_time=0.0, save_dir=".", analysis_target="all", save_filtered=False):
     """
+
     Processes IMU data and generates analysis plots for each axis and magnitude, saved to specified directory.
 
     Parameters:
@@ -17,6 +18,7 @@ def process_imu_data(file_path, cutoff_frequency=10.0, sampling_rate=50.0, order
         start_time (float): Start timestamp for analysis (in milliseconds).
         save_dir (str): Directory to save generated plots.
         analysis_target (str): Target data to analyze ("all", "accel", "gyro").
+        save_filtered (bool): Whether to save filtered data plots.
 
     Returns:
         None
@@ -26,10 +28,7 @@ def process_imu_data(file_path, cutoff_frequency=10.0, sampling_rate=50.0, order
     imu_data.columns = ['timestamp', 'gyro_x', 'gyro_y', 'gyro_z', 'accel_x', 'accel_y', 'accel_z']
 
     # Ensure all columns are numeric
-    for col in ['timestamp', 'gyro_x', 'gyro_y', 'gyro_z', 'accel_x', 'accel_y', 'accel_z']:
-        imu_data[col] = pd.to_numeric(imu_data[col], errors='coerce')
-
-    # Drop rows with invalid (NaN) values
+    imu_data = imu_data.apply(pd.to_numeric, errors='coerce')
     imu_data = imu_data.dropna()
 
     # Filter data to include only rows after start_time
@@ -37,100 +36,134 @@ def process_imu_data(file_path, cutoff_frequency=10.0, sampling_rate=50.0, order
     if imu_data.empty:
         raise ValueError("No data points exist after the specified start_time.")
 
-    print(imu_data.head())  # 查看前几行
-    print(imu_data.dtypes)  # 检查每列的数据类型
-
-    # Compute accelerometer magnitude if needed
-    if analysis_target in ["all", "accel"]:
-        imu_data['accel_magnitude'] = np.sqrt(imu_data['accel_x']**2 + imu_data['accel_y']**2 + imu_data['accel_z']**2)
-
-    def frequency_analysis(data, signal_column, time_column):
-        signal = data[signal_column].values
-        timestamps = data[time_column].values
-
-        # Calculate sampling interval and rate
-        dt = np.mean(np.diff(timestamps)) / 1000  # Assuming timestamp in milliseconds
-        fs = 1 / dt
-
-        # Perform FFT
-        n = len(signal)
-        yf = fft(signal)
-        xf = fftfreq(n, dt)[:n // 2]
-
-        # Calculate power spectrum
-        ps = 2.0 / n * np.abs(yf[:n // 2])
-        return xf, ps
-
-    # Select target axes for analysis
-    target_axes = []
-    if analysis_target in ["all", "accel"]:
-        target_axes.extend(['accel_x', 'accel_y', 'accel_z', 'accel_magnitude'])
-    if analysis_target in ["all", "gyro"]:
-        target_axes.extend(['gyro_x', 'gyro_y', 'gyro_z'])
-
-    # Perform frequency analysis for selected axes
-    frequencies = {}
-    power_spectra = {}
-    for axis in target_axes:
-        frequencies[axis], power_spectra[axis] = frequency_analysis(imu_data, axis, 'timestamp')
-
     # Define low-pass filter function
-    def butter_lowpass_filter(data, cutoff, fs, order=4):
+    def butter_lowpass_filter(data, cutoff, fs, order):
         nyquist = 0.5 * fs
         normal_cutoff = cutoff / nyquist
         b, a = butter(order, normal_cutoff, btype='low', analog=False)
         y = filtfilt(b, a, data)
         return y
 
+    # Select target axes for analysis
+    target_axes = []
+    if analysis_target in ["all", "accel"]:
+        target_axes.extend(['accel_x', 'accel_y', 'accel_z'])
+    if analysis_target in ["all", "gyro"]:
+        target_axes.extend(['gyro_x', 'gyro_y', 'gyro_z'])
+
     # Apply low-pass filter to selected axes
     for axis in target_axes:
         imu_data[f'{axis}_filtered'] = butter_lowpass_filter(imu_data[axis], cutoff_frequency, sampling_rate, order)
 
-    # Save frequency spectrum plots for selected axes
-    for axis in target_axes:
-        plt.figure(figsize=(10, 6))
-        plt.plot(frequencies[axis], power_spectra[axis], label=axis, alpha=0.7)
-        plt.title(f'Frequency Spectrum Analysis - {axis}')
-        plt.xlabel('Frequency (Hz)')
-        plt.ylabel('Amplitude')
-        plt.grid()
-        plt.tight_layout()
-        spectrum_plot_path = os.path.join(save_dir, f'frequency_spectrum_{axis}.png')
-        plt.savefig(spectrum_plot_path)
-        plt.close()
+    # Convert timestamp from milliseconds to seconds for plotting
+    imu_data['time_seconds'] = imu_data['timestamp'] / 1000.0
 
-    # Save filtered and raw data plots for selected axes
-    for axis in target_axes:
-        plt.figure(figsize=(15, 8))
-
-        plt.subplot(211)
-        plt.plot(imu_data['timestamp'], imu_data[axis], label=f'{axis} (raw)', linewidth=1.5, alpha=0.7)
-        plt.legend()
-        plt.title(f'Raw {axis} Data')
-        plt.xlabel('Timestamp (ms)')
-        plt.ylabel('Value')
-        plt.grid()
-
-        if save_filtered:
-            plt.subplot(212)
-            plt.plot(imu_data['timestamp'], imu_data[f'{axis}_filtered'], label=f'{axis} (filtered)', linewidth=1.5, alpha=0.7)
-            plt.legend()
-            plt.title(f'Filtered {axis} Data')
-            plt.xlabel('Timestamp (ms)')
+    # Plot data based on analysis target
+    if "accel" in analysis_target or analysis_target == "all":
+        plt.figure(figsize=(20, 10))
+        for i, axis in enumerate(['accel_x', 'accel_y', 'accel_z']):
+            plt.subplot(3, 2, 2 * i + 1)
+            plt.plot(imu_data['time_seconds'], imu_data[axis], label=f'{axis} (raw)', linewidth=1.5)
+            plt.title(f'{axis} Raw Data')
+            plt.xlabel('Time (s)')
             plt.ylabel('Value')
             plt.grid()
 
+            if save_filtered:
+                plt.subplot(3, 2, 2 * i + 2)
+                plt.plot(imu_data['time_seconds'], imu_data[f'{axis}_filtered'], label=f'{axis} (filtered)', linewidth=1.5)
+                plt.title(f'{axis} Filtered Data')
+                plt.xlabel('Time (s)')
+                plt.ylabel('Value')
+                plt.grid()
+
         plt.tight_layout()
-        filtered_plot_path = os.path.join(save_dir, f'filtered_data_{axis}.png')
-        plt.savefig(filtered_plot_path)
+        accel_plot_path = os.path.join(save_dir, 'acceleration_data.png')
+        plt.savefig(accel_plot_path)
         plt.close()
 
-        print(f"Frequency spectrum plot for {axis} saved to: {os.path.join(save_dir, f'frequency_spectrum_{axis}.png')}")
-        if save_filtered:
-            print(f"Filtered data plot for {axis} saved to: {os.path.join(save_dir, f'filtered_data_{axis}.png')}")
+    if "gyro" in analysis_target or analysis_target == "all":
+        plt.figure(figsize=(20, 10))
+        for i, axis in enumerate(['gyro_x', 'gyro_y', 'gyro_z']):
+            plt.subplot(3, 2, 2 * i + 1)
+            plt.plot(imu_data['time_seconds'], imu_data[axis], label=f'{axis} (raw)', linewidth=1.5)
+            plt.title(f'{axis} Raw Data')
+            plt.xlabel('Time (s)')
+            plt.ylabel('Value')
+            plt.grid()
 
-        print(f"Frequency spectrum plot for {axis} saved to: {os.path.join(save_dir, f'frequency_spectrum_{axis}.png')}")
-        print(f"Filtered data plot for {axis} saved to: {os.path.join(save_dir, f'filtered_data_{axis}.png')}")
+            if save_filtered:
+                plt.subplot(3, 2, 2 * i + 2)
+                plt.plot(imu_data['time_seconds'], imu_data[f'{axis}_filtered'], label=f'{axis} (filtered)', linewidth=1.5)
+                plt.title(f'{axis} Filtered Data')
+                plt.xlabel('Time (s)')
+                plt.ylabel('Value')
+                plt.grid()
+
+        plt.tight_layout()
+        gyro_plot_path = os.path.join(save_dir, 'gyroscope_data.png')
+        plt.savefig(gyro_plot_path)
+        plt.close()
+
+    # Frequency analysis
+    def frequency_analysis(signal, timestamps):
+        dt = np.mean(np.diff(timestamps)) / 1000.0
+        fs = 1 / dt
+        n = len(signal)
+        yf = fft(signal)
+        xf = fftfreq(n, dt)[:n // 2]
+        ps = 2.0 / n * np.abs(yf[:n // 2])
+        return xf, ps
+
+    if "accel" in analysis_target or analysis_target == "all":
+        plt.figure(figsize=(20, 10))
+        for i, axis in enumerate(['accel_x', 'accel_y', 'accel_z']):
+            xf, ps = frequency_analysis(imu_data[axis], imu_data['timestamp'])
+            plt.subplot(3, 2, 2 * i + 1)
+            plt.plot(xf, ps, label=f'{axis} Spectrum', linewidth=1.5)
+            plt.title(f'{axis} Frequency Spectrum')
+            plt.xlabel('Frequency (Hz)')
+            plt.ylabel('Amplitude')
+            plt.grid()
+
+            if save_filtered:
+                xf, ps = frequency_analysis(imu_data[f'{axis}_filtered'], imu_data['timestamp'])
+                plt.subplot(3, 2, 2 * i + 2)
+                plt.plot(xf, ps, label=f'{axis} Filtered Spectrum', linewidth=1.5)
+                plt.title(f'{axis} Filtered Frequency Spectrum')
+                plt.xlabel('Frequency (Hz)')
+                plt.ylabel('Amplitude')
+                plt.grid()
+
+        plt.tight_layout()
+        accel_spectrum_path = os.path.join(save_dir, 'acceleration_spectrum.png')
+        plt.savefig(accel_spectrum_path)
+        plt.close()
+
+    if "gyro" in analysis_target or analysis_target == "all":
+        plt.figure(figsize=(20, 10))
+        for i, axis in enumerate(['gyro_x', 'gyro_y', 'gyro_z']):
+            xf, ps = frequency_analysis(imu_data[axis], imu_data['timestamp'])
+            plt.subplot(3, 2, 2 * i + 1)
+            plt.plot(xf, ps, label=f'{axis} Spectrum', linewidth=1.5)
+            plt.title(f'{axis} Frequency Spectrum')
+            plt.xlabel('Frequency (Hz)')
+            plt.ylabel('Amplitude')
+            plt.grid()
+
+            if save_filtered:
+                xf, ps = frequency_analysis(imu_data[f'{axis}_filtered'], imu_data['timestamp'])
+                plt.subplot(3, 2, 2 * i + 2)
+                plt.plot(xf, ps, label=f'{axis} Filtered Spectrum', linewidth=1.5)
+                plt.title(f'{axis} Filtered Frequency Spectrum')
+                plt.xlabel('Frequency (Hz)')
+                plt.ylabel('Amplitude')
+                plt.grid()
+
+        plt.tight_layout()
+        gyro_spectrum_path = os.path.join(save_dir, 'gyroscope_spectrum.png')
+        plt.savefig(gyro_spectrum_path)
+        plt.close()
 
 # Example usage
 if __name__ == "__main__":
@@ -144,6 +177,7 @@ if __name__ == "__main__":
     parser.add_argument('--start_time', type=float, default=0.0, help="Start timestamp for analysis (in milliseconds).")
     parser.add_argument('--save_dir', type=str, default=".", help="Directory to save generated plots.")
     parser.add_argument('--analysis_target', type=str, choices=["all", "accel", "gyro"], default="all", help="Target data to analyze (all, accel, gyro).")
+    parser.add_argument('--save_filtered', action='store_true', help="Save filtered data plots.")
 
     args = parser.parse_args()
 
@@ -154,5 +188,6 @@ if __name__ == "__main__":
         order=args.order,
         start_time=args.start_time,
         save_dir=args.save_dir,
-        analysis_target=args.analysis_target
+        analysis_target=args.analysis_target,
+        save_filtered=args.save_filtered
     )
