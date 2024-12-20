@@ -10,8 +10,8 @@ def parse_args():
         argparse.Namespace: Parsed arguments.
     """
     parser = argparse.ArgumentParser(description="Convert VSLAM log data to TUM trajectory format.")
-    parser.add_argument('input_file', type=str, help="Path to the input VSLAM log file.")
-    parser.add_argument('output_file', type=str, help="Path to save the converted TUM trajectory file.")
+    parser.add_argument('--input_file', type=str, help="Path to the input VSLAM log file.")
+    parser.add_argument('--output_file', type=str, help="Path to save the converted TUM trajectory file.")
     parser.add_argument('--keyword', type=str, default="estimate", help="Keyword to filter relevant data lines.")
     return parser.parse_args()
 

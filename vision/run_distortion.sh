@@ -17,7 +17,7 @@ fi
 
 # YAML 路径
 YAML_PATH_FISHEYE="/home/roborock/下载/mower/#1Z.png_stereo_fisheye.yml"
-YAML_PATH_STANDARD8="/home/roborock/下载/mower/P1_2_#1_116_Z.raw_stereo_nofix8.yml"
+YAML_PATH_STANDARD8="/home/roborock/下载/mower/#1Z.png_stereo_fix8.yml"
 YAML_PATH_STANDARD5="/home/roborock/下载/mower/#1Z.png_stereo_nofix5.yml"
 
 # 遍历目录中的所有 PNG 图片

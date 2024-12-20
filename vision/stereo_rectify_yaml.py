@@ -75,6 +75,7 @@ def apply_zoom_to_projection_matrix(P, zoom_factor, center_x, center_y):
     return P_new
 
 
+# R is R_right_left, T is T_right_left
 def rectify_stereo_images(left_img, right_img, K1, D1, K2, D2, R, T, image_size, model, zoom_factor=1.0):
     """进行双目极线校正，并调整图像的缩放比例"""
     # 获取图像中心
@@ -112,23 +113,6 @@ def rectify_stereo_images(left_img, right_img, K1, D1, K2, D2, R, T, image_size,
 
     return rectified_left, rectified_right, P1, P2
 
-# def rectify_stereo_images(left_img, right_img, K1, D1, K2, D2, R, T, image_size):
-#     """进行双目极线校正"""
-#     # 使用fisheye模型进行极线校正
-#     R1, R2, P1, P2, Q = cv2.fisheye.stereoRectify(
-#         K1, D1, K2, D2, image_size, R, T,
-#         flags=cv2.CALIB_ZERO_DISPARITY, balance=0, fov_scale=1
-#     )
-#
-#     # 生成去畸变校正映射
-#     map1x, map1y = cv2.fisheye.initUndistortRectifyMap(K1, D1, R1, P1, image_size, cv2.CV_32FC1)
-#     map2x, map2y = cv2.fisheye.initUndistortRectifyMap(K2, D2, R2, P2, image_size, cv2.CV_32FC1)
-#
-#     # 使用映射对左右图像进行校正
-#     rectified_left = cv2.remap(left_img, map1x, map1y, cv2.INTER_LINEAR)
-#     rectified_right = cv2.remap(right_img, map2x, map2y, cv2.INTER_LINEAR)
-#
-#     return rectified_left, rectified_right, P1, P2
 
 def draw_grid(img, step=50, color=(255, 0, 0)):
     """在图像上绘制网格线，便于验证校正效果"""
