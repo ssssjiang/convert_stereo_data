@@ -12,7 +12,7 @@ def parse_args():
     parser.add_argument('-r', '--right_image', type=str, required=True, help="Path to the right input image.")
     parser.add_argument('-y', '--yaml_path', type=str, required=True, help="Path to the calibration YAML file.")
     parser.add_argument('-m', '--model', type=str, choices=['fisheye', 'standard'], required=True, help="Camera model: 'fisheye' or 'standard'.")
-    parser.add_argument('-z', '--zoom_factor', type=float, default=0.5, help="Zoom factor for de-distortion (default: 1.0).")
+    parser.add_argument('-z', '--zoom_factor', type=float, default=1, help="Zoom factor for de-distortion (default: 1.0).")
     parser.add_argument('-g', '--grid_spacing', type=int, default=50, help="Spacing between grid lines in pixels.")
     return parser.parse_args()
 
@@ -25,22 +25,22 @@ def load_calibration(yaml_path):
     if not fs.isOpened():
         raise FileNotFoundError(f"YAML file at path '{yaml_path}' could not be loaded.")
 
-    camera_matrix_l = fs.getNode("M2").mat()
-    dist_coeffs_l = fs.getNode("D2").mat().flatten()
-    camera_matrix_r = fs.getNode("M1").mat()
-    dist_coeffs_r = fs.getNode("D1").mat().flatten()
+    camera_matrix_l = fs.getNode("M1").mat()
+    dist_coeffs_l = fs.getNode("D1").mat().flatten()
+    camera_matrix_r = fs.getNode("M2").mat()
+    dist_coeffs_r = fs.getNode("D2").mat().flatten()
     R = fs.getNode("R").mat()  # 旋转矩阵
     T = fs.getNode("T").mat().flatten()  # 平移向量
-    PL = fs.getNode("PL").mat()  # 左相机投影矩阵
-    PR = fs.getNode("PR").mat()  # 右相机投影矩阵
+    # PL = fs.getNode("PL").mat()  # 左相机投影矩阵
+    # PR = fs.getNode("PR").mat()  # 右相机投影矩阵
 
     # 旋转矩阵 R
-    R = R.T
-    T = -R @ T
+    # R = R.T
+    # T = -R @ T
 
     fs.release()
 
-    if camera_matrix_l is None or dist_coeffs_l is None or camera_matrix_r is None or dist_coeffs_r is None or R is None or T is None or PL is None or PR is None:
+    if camera_matrix_l is None or dist_coeffs_l is None or camera_matrix_r is None or dist_coeffs_r is None or R is None or T is None:
         raise ValueError("Failed to load calibration parameters from the YAML file.")
 
     print("Loaded Left Camera Matrix:")
@@ -55,12 +55,8 @@ def load_calibration(yaml_path):
     print(R)
     print("\nLoaded Translation Vector:")
     print(T)
-    print("\nLoaded Left Projection Matrix (PL):")
-    print(PL)
-    print("\nLoaded Right Projection Matrix (PR):")
-    print(PR)
 
-    return camera_matrix_l, dist_coeffs_l, camera_matrix_r, dist_coeffs_r, R, T, PL, PR
+    return camera_matrix_l, dist_coeffs_l, camera_matrix_r, dist_coeffs_r, R, T
 
 
 def apply_zoom_to_projection_matrix(P, zoom_factor, center_x, center_y):
@@ -129,7 +125,7 @@ def main():
     args = parse_args()
 
     # 加载相机校准参数
-    K1, D1, K2, D2, R, T, PL, PR = load_calibration(args.yaml_path)
+    K1, D1, K2, D2, R, T = load_calibration(args.yaml_path)
 
     # 读取左、右图像
     img1 = cv2.imread(args.left_image, cv2.IMREAD_GRAYSCALE)
@@ -155,17 +151,13 @@ def main():
     grid_right = draw_grid(rectified_right.copy())
 
     # 比较投影矩阵（PL, PR）与校正后的投影矩阵（P1, P2）
-    print("\nLeft Projection Matrix (PL) from YAML:")
-    print(PL)
-    print("\nRight Projection Matrix (PR) from YAML:")
-    print(PR)
     print("\nLeft Projection Matrix (P1) from StereoRectify:")
     print(P1)
     print("\nRight Projection Matrix (P2) from StereoRectify:")
     print(P2)
 
     # 拼接左右校正后的图像
-    combined_image = np.vstack((grid_left, grid_right))
+    combined_image = np.hstack((grid_left, grid_right))
 
     # 保存拼接后的图像
     output_dir = os.path.dirname(args.left_image)  # 输出路径与输入图像目录相同
