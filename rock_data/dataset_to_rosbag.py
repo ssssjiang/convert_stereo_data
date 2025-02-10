@@ -22,17 +22,17 @@ def convert_image_to_ros_msg(image_path, timestamp, frame_id):
         rospy.logerr("Failed to read image: {}".format(image_path))
         raise ValueError("Failed to read image: {}".format(image_path))
 
-    # Crop the image to keep the center and resize to 640x480
-    height, width = image.shape
-    crop_x = (width - 640) // 2
-    crop_y = (height - 480) // 2
-    cropped_image = image[crop_y:crop_y + 480, crop_x:crop_x + 640]
+    # # Crop the image to keep the center and resize to 640x480
+    # height, width = image.shape
+    # crop_x = (width - 640) // 2
+    # crop_y = (height - 480) // 2
+    # cropped_image = image[crop_y:crop_y + 480, crop_x:crop_x + 640]
 
-    cv2.imshow('image', cropped_image)
+    cv2.imshow('image', image)
     cv2.waitKey(1)
 
     bridge = CvBridge()
-    img_msg = bridge.cv2_to_imgmsg(cropped_image, encoding='mono8')
+    img_msg = bridge.cv2_to_imgmsg(image, encoding='mono8')
     img_msg.header.stamp = rospy.Time.from_sec(timestamp)
     img_msg.header.frame_id = frame_id
     return img_msg

@@ -19,7 +19,7 @@ def create_maplab_structure(source_dir):
     camera_dir = os.path.join(source_dir, "camera")
     imu_file_path = os.path.join(source_dir, "imu.csv")
     imu_log_file_path = os.path.join(source_dir, "RRLDR_fprintf.log")
-    pose_log_pattern = os.path.join(source_dir, "*SLAM_fprintf.log")
+    pose_log_pattern = os.path.join(source_dir, "*SLAM_fprintf*.log")
     pose_log_files = glob(pose_log_pattern)
     tof_pose_path = os.path.join(source_dir, "tof_pose.txt")
 
@@ -142,7 +142,7 @@ def extract_imu_data(log_file_path, imu_file_path):
         csvwriter.writerow(["# timestamp", "gyro_x", "gyro_y", "gyro_z", "accel_x", "accel_y", "accel_z"])
         csvwriter.writerows(unique_imu_data)
 
-    process_imu_data(imu_file_path, save_dir=os.path.dirname(imu_file_path))
+    # process_imu_data(imu_file_path, save_dir=os.path.dirname(imu_file_path))
 
 
 if __name__ == "__main__":
