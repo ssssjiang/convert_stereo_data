@@ -215,6 +215,7 @@ class TrajectoryEvaluator:
             traj_cmd = [
                 "evo_traj",
                 "tum",
+                "-a",
                 "--ref", gt_path,
                 "--plot_mode", "yx",
                 "--save_plot", os.path.join(eval_dir, "trajectories_top.pdf"),

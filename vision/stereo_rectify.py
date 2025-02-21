@@ -9,48 +9,58 @@ from matplotlib import pyplot as plt
 
 # Left camera intrinsic parameters
 K1 = np.array([
-    [260.063551592498, 0.0, 400.7237754048461],
-    [0.0, 259.9904115230021, 300.40231457638737],
+    [338.6803142637706, 0.0, 258.0690560860475],
+    [0.0, 338.75365280379106, 320.413904138195],
     [0.0, 0.0, 1.0]
 ])
 
 D1 = np.array([
-    -0.0025081048464266195,
-    0.022744694807417455,
-    -0.018000412523496625,
-    0.0026870339959659795
+    -0.05000465875052348,
+    0.013638910705411799,
+    -0.004489042932918501,
+    -0.0022342707993817414
 ])
 
 # Right camera intrinsic parameters
 K2 = np.array([
-    [259.7568821036086, 0.0, 394.9905360190833],
-    [0.0, 260.10819099573615, 294.44467823631834],
+    [338.2025698693698, 0.0, 261.4748043067035],
+    [0.0, 338.3759984276547, 323.62424124741983],
     [0.0, 0.0, 1.0]
 ])
 
 D2 = np.array([
-    0.0008605939481375175,
-    0.015921588486384006,
-    -0.012233412348966891,
-    0.0012503893360738545
+    -0.053200225373542735,
+    0.03182203889525646,
+    -0.03173614929236543,
+    0.009767890209496633
 ])
 
-# Rotation and translation from left to right camera
+# # Rotation and translation from left to right camera
 R = np.array([
-    [9.99098793e-01, -2.05292927e-02, 3.71502418e-02],
-    [1.79610022e-02, 9.97510473e-01, 6.81926137e-02],
-    [-3.84577621e-02, -6.74638908e-02, 9.96980307e-01]
+    [9.99964716e-01, 5.22597035e-03, -6.66162030e-03],
+    [-5.24784793e-03, 9.99980944e-01, -3.28138833e-03],
+    [6.64477369e-03, 3.31630614e-03, 9.99972337e-01]
 ])
 
-T = np.array([-5.83901193e-02, 5.96484850e-04, 1.92816866e-04])
+T = np.array([-5.11477817e-04, -6.50395836e-02, -7.49796887e-05])
+
+# --------------------------------------------
+
+# R = np.array([
+#     [0.9999641553975523, 0.0052259809020549775, -0.00666160969022284],
+#     [-0.005247928242327688, 0.999980845685386, -0.00328138865380209],
+#     [0.006644333617218029, 0.0033162306833630123, 0.9999724273422901]
+# ])
+#
+# T = np.array([-0.0005115137246098722, -0.06503955280279526, -7.49217089659946e-05])
 
 # --------------------------------------------
 # 2. Load Images and Determine Image Size
 # --------------------------------------------
 
 # Paths to the left and right images
-left_image_path = "/home/roborock/下载/images/encpic_000054/SL_R_18840977_IR_0_NoPose_800X900.png"
-right_image_path = "/home/roborock/下载/images/encpic_000054/SL_L_18840977_IR_0_NoPose_800X900.png"
+left_image_path = "/home/roborock/下载/000385_converted_log/camera/camera0/156039.png"
+right_image_path = "/home/roborock/下载/000385_converted_log/camera/camera1/156039.png"
 
 # Read images in grayscale
 img1 = cv2.imread(left_image_path, cv2.IMREAD_GRAYSCALE)
@@ -65,7 +75,7 @@ image_size = (img1.shape[1], img1.shape[0])  # (width, height)
 # --------------------------------------------
 # 3. Perform Stereo Rectification
 # --------------------------------------------
-zoom_factor = 0.3   # 0 < zoom_factor <= 1.0，根据需要调整
+zoom_factor = 0.7  # 0 < zoom_factor <= 1.0，根据需要调整
 
 # Perform stereo rectification using fisheye module
 R1, R2, P1, P2, Q = cv2.fisheye.stereoRectify(
@@ -137,22 +147,6 @@ rectified_img1 = cv2.remap(img1, map1x, map1y, cv2.INTER_LINEAR)
 rectified_img2 = cv2.remap(img2, map2x, map2y, cv2.INTER_LINEAR)
 
 # --------------------------------------------
-# 6. Save Rectified Images
-# --------------------------------------------
-
-# Define output paths
-output_dir = "/home/roborock/"
-output_path_left = os.path.join(output_dir, "24854721_left.png")
-output_path_right = os.path.join(output_dir, "24854721_right.png")
-
-# Ensure the output directory exists
-os.makedirs(output_dir, exist_ok=True)
-
-# Save rectified images
-cv2.imwrite(output_path_left, rectified_img1)
-cv2.imwrite(output_path_right, rectified_img2)
-
-# --------------------------------------------
 # 7. Visualize Rectified Images
 # --------------------------------------------
 
@@ -171,17 +165,20 @@ def draw_grid(img, step=50, color=(255, 0, 0)):
 grid_img1 = draw_grid(rectified_img1.copy())
 grid_img2 = draw_grid(rectified_img2.copy())
 
-# Display rectified images with grid
+# 拼接左右校正后的图像
+combined_image = np.hstack((grid_img1, grid_img2))
+
+# 保存拼接后的图像
+output_dir = os.path.dirname("/home/roborock/")  # 输出路径与输入图像目录相同
+os.makedirs(output_dir, exist_ok=True)
+
+output_path_combined = os.path.join(output_dir, "rectified_combined.png")
+cv2.imwrite(output_path_combined, combined_image)
+
+# 显示拼接后的图像
 plt.figure(figsize=(12, 6))
-
-plt.subplot(1, 2, 1)
-plt.title("Rectified Left with Grid")
-plt.imshow(grid_img1)
+plt.title("Rectified Combined Image")
+plt.imshow(combined_image)
 plt.axis('off')
-
-plt.subplot(1, 2, 2)
-plt.title("Rectified Right with Grid")
-plt.imshow(grid_img2)
-plt.axis('off')
-
 plt.show()
+

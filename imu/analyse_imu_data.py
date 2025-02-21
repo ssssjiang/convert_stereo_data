@@ -25,7 +25,7 @@ def process_imu_data(file_path, cutoff_frequency=10.0, sampling_rate=50.0, order
     """
     # Load the CSV file
     imu_data = pd.read_csv(file_path, sep=' ', header=None)
-    imu_data.columns = ['timestamp', 'accel_x', 'accel_y', 'accel_z', 'gyro_x', 'gyro_y', 'gyro_z']
+    imu_data.columns = ['timestamp', 'gyro_x', 'gyro_y', 'gyro_z', 'accel_x', 'accel_y', 'accel_z']
 
     # Ensure all columns are numeric
     imu_data = imu_data.apply(pd.to_numeric, errors='coerce')
