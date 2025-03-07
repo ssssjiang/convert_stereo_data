@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy import signal
-from parse_imu_data import read_imu_data
+from imu.parse_imu_data import read_imu_data
 from analyze_complex_rotation import detect_rotation_sequences
 
 def apply_filters(data):

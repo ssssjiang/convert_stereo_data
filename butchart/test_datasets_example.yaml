@@ -1,0 +1,26 @@
+# 测试数据集列表
+# 每一项是一个数据集的绝对路径
+# - /home/roborock/datasets/roborock/stereo/0122/room1/living_room/normal_path/
+
+# 注意：现在可以使用 -a 或 --auto 参数，直接指定数据集根目录，自动查找符合条件的数据集
+# 例如：./run_slam_evaluation.py -e <可执行文件路径> -d /home/roborock/datasets -o <输出目录> -a
+# 或者：./run_slam_evaluation.py -e <可执行文件路径> -d /home/roborock/datasets -o <输出目录>
+# 符合条件的数据集：目录下包含camera子文件夹和sensor.yaml文件
+
+# 以下是手动指定数据集的示例：
+- /home/roborock/datasets/roborock/stereo/0122/room1/bathroom/
+- /home/roborock/datasets/roborock/stereo/0122/room1/bedroom/
+- /home/roborock/datasets/roborock/stereo/0122/room1/living_room/normal_path/
+- /home/roborock/datasets/roborock/stereo/0122/room1/living_room/simple_path/
+- /home/roborock/datasets/roborock/stereo/0122/room2/bedroom1/
+- /home/roborock/datasets/roborock/stereo/0122/room2/bedroom2/
+- /home/roborock/datasets/roborock/stereo/0122/room2/living_room/normal_path/
+- /home/roborock/datasets/roborock/stereo/0122/room2/living_room/simple_path/
+- /home/roborock/datasets/roborock/stereo/0122/room3/bedroom1/
+- /home/roborock/datasets/roborock/stereo/0122/room3/bedroom2/
+- /home/roborock/datasets/roborock/stereo/0122/room3/bedroom3/
+- /home/roborock/datasets/roborock/stereo/0122/room3/living_room/normal_path/
+- /home/roborock/datasets/roborock/stereo/0122/room7/bathroom/
+- /home/roborock/datasets/roborock/stereo/0122/room7/bedroom/
+- /home/roborock/datasets/roborock/stereo/0122/room7/living_room/normal_path/
+- /home/roborock/datasets/roborock/stereo/0122/room7/living_room/simple_path/

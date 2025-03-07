@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from parse_imu_data import read_imu_data
+from imu.parse_imu_data import read_imu_data
 
 def analyze_imu_motion(data):
     """Analyze IMU motion patterns based on acceleration and angular velocity data."""
