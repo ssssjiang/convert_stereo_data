@@ -1,8 +1,20 @@
+#!/usr/bin/env python3
 import os
 import csv
+import sys
 from glob import glob
-from .convert_tof_traj import convert_vslam_to_tum, plot_tum_trajectory
-from imu.analyse_imu_data import process_imu_data
+
+# Fix imports to work both as a module and when executed directly
+try:
+    from .convert_tof_traj import convert_vslam_to_tum, plot_tum_trajectory
+except ImportError:
+    from convert_tof_traj import convert_vslam_to_tum, plot_tum_trajectory
+
+try:
+    from imu.analyse_imu_data import process_imu_data
+except ImportError:
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from imu.analyse_imu_data import process_imu_data
 
 
 def log(message, level="INFO"):
@@ -12,52 +24,101 @@ def log(message, level="INFO"):
 
 def create_maplab_structure(source_dir):
     """
-    创建 MapLab 格式的目录结构并解析数据。
+    Create a MapLab format directory structure and parse data.
+    
+    Args:
+        source_dir: Source directory containing camera data and log files
+        
+    Raises:
+        FileNotFoundError: If required directories or files are missing
+        Exception: If any processing step fails
     """
-    log(f"开始解析数据，目录：{source_dir}")
+    log(f"Starting data parsing, directory: {source_dir}")
 
+    # Define all the required paths
     camera_dir = os.path.join(source_dir, "camera")
     imu_file_path = os.path.join(source_dir, "imu.csv")
     imu_log_file_path = os.path.join(source_dir, "RRLDR_fprintf.log")
     pose_log_pattern = os.path.join(source_dir, "*SLAM_fprintf*.log")
     pose_log_files = glob(pose_log_pattern)
     tof_pose_path = os.path.join(source_dir, "tof_pose.txt")
+    rtk_pose_path = os.path.join(source_dir, "rtk_pose.txt")
 
+    # Validate source directory
+    if not os.path.exists(source_dir):
+        log(f"Source directory {source_dir} does not exist.", level="ERROR")
+        raise FileNotFoundError(f"Source directory {source_dir} not found.")
+    
     if not os.path.exists(camera_dir):
-        log(f"目录 {camera_dir} 不存在。", level="ERROR")
-        raise FileNotFoundError(f"{camera_dir} not found in source directory.")
+        log(f"Camera directory {camera_dir} does not exist.", level="ERROR")
+        raise FileNotFoundError(f"Camera directory not found in source directory.")
 
-    # 生成 camera0 和 camera1 的 data.csv 文件
+    # Process camera data
     try:
-        log("生成 camera0 和 camera1 的 data.csv 文件")
+        log("Generating data.csv files for camera0 and camera1")
         camera0_csv_path = os.path.join(camera_dir, "camera0", "data.csv")
         camera1_csv_path = os.path.join(camera_dir, "camera1", "data.csv")
         generate_data_csv(camera_dir, camera0_csv_path, camera1_csv_path)
+        log("Camera data CSV files generated successfully")
     except Exception as e:
-        log(f"生成 data.csv 失败: {e}", level="ERROR")
+        log(f"Failed to generate camera data CSV files: {e}", level="ERROR")
         raise
 
-    # 生成 imu.csv
+    # Process IMU data
     try:
-        log("从 RRLDR_fprintf.log 提取 IMU 数据")
-        extract_imu_data(imu_log_file_path, imu_file_path)
-    except FileNotFoundError:
-        log(f"IMU 日志文件 {imu_log_file_path} 不存在，跳过 IMU 数据生成。", level="WARNING")
+        log("Extracting IMU data from RRLDR_fprintf.log")
+        if os.path.exists(imu_log_file_path):
+            extract_imu_data(imu_log_file_path, imu_file_path)
+            log("IMU data extracted successfully")
+        else:
+            log(f"IMU log file {imu_log_file_path} does not exist, skipping IMU data generation.", level="WARNING")
+    except Exception as e:
+        log(f"Failed to extract IMU data: {e}", level="ERROR")
+        # Don't raise here to continue processing other data
 
-    # 生成 tof_pose.txt
+    # Process RTK data
+    try:
+        log("Extracting RTK data from RRLDR_fprintf.log")
+        if os.path.exists(imu_log_file_path):  # RTK data is in the same log file as IMU
+            extract_rtk_data(imu_log_file_path, rtk_pose_path)
+            log("RTK data extracted successfully")
+            
+            # Optionally plot the RTK trajectory
+            try:
+                rtk_plot_path = rtk_pose_path.replace(".txt", ".png")
+                plot_tum_trajectory(rtk_pose_path, rtk_plot_path)
+                log(f"RTK trajectory plot saved to {rtk_plot_path}")
+            except Exception as e:
+                log(f"Failed to generate RTK trajectory plot: {e}", level="WARNING")
+        else:
+            log(f"Log file {imu_log_file_path} does not exist, skipping RTK data generation.", level="WARNING")
+    except Exception as e:
+        log(f"Failed to extract RTK data: {e}", level="ERROR")
+        # Don't raise here to continue processing other data
+
+    # Process pose data
     try:
         if pose_log_files:
-            log(f"提取 SLAM pose 数据，使用文件 {pose_log_files[0]}")
+            log(f"Extracting SLAM pose data using file {pose_log_files[0]}")
             convert_vslam_to_tum(pose_log_files[0], tof_pose_path)
-            log("生成 TOF 轨迹图")
-            plot_tum_trajectory(tof_pose_path, tof_pose_path.replace(".txt", ".png"))
+            log("Generating TOF trajectory plot")
+            
+            plot_file_path = tof_pose_path.replace(".txt", ".png")
+            plot_tum_trajectory(tof_pose_path, plot_file_path)
+            log(f"TOF trajectory plot saved to {plot_file_path}")
         else:
-            log(f"未找到 *_SLAM_fprintf.log 文件，跳过轨迹数据生成。", level="WARNING")
+            log("No *_SLAM_fprintf.log files found, skipping trajectory data generation.", level="WARNING")
     except Exception as e:
-        log(f"生成 tof_pose 数据失败: {e}", level="ERROR")
-        raise
+        log(f"Failed to generate TOF pose data: {e}", level="ERROR")
+        # Don't raise here either to still report overall completion
 
-    log("数据解析完成！")
+    log("Data parsing complete!")
+    return {
+        "camera_csv_files": [camera0_csv_path, camera1_csv_path] if os.path.exists(camera_dir) else [],
+        "imu_csv": imu_file_path if os.path.exists(imu_file_path) else None,
+        "tof_pose": tof_pose_path if os.path.exists(tof_pose_path) else None,
+        "rtk_pose": rtk_pose_path if os.path.exists(rtk_pose_path) else None
+    }
 
 
 def generate_data_csv(camera_dir, camera0_csv_path, camera1_csv_path):
@@ -113,36 +174,255 @@ def generate_data_csv(camera_dir, camera0_csv_path, camera1_csv_path):
 
 def extract_imu_data(log_file_path, imu_file_path):
     """
-    从 RRLDR_fprintf.log 提取 IMU 数据，生成 imu.csv。
+    Extract IMU data from RRLDR_fprintf.log and generate imu.csv.
+    
+    Args:
+        log_file_path: Path to the log file containing IMU data
+        imu_file_path: Path to save the output IMU CSV file
+        
+    Raises:
+        FileNotFoundError: If the input log file doesn't exist
+        ValueError: If there are issues parsing the log file
     """
     if not os.path.exists(log_file_path):
-        raise FileNotFoundError(f"{log_file_path} 不存在。")
+        raise FileNotFoundError(f"{log_file_path} does not exist.")
 
-    imu_data = []
-
-    with open(log_file_path, "r") as logfile:
-        for line in logfile:
-            if "gyroOdo" in line:
-                parts = line.split()
-                timestamp = parts[0]
-                gyro_data = parts[17:20]  # 假设第 18-20 列是陀螺仪数据
-                accel_data = parts[11:14]  # 假设第 12-14 列是加速度数据
-                imu_data.append([int(timestamp)] + gyro_data + accel_data)
-
-    imu_data.sort(key=lambda x: x[0])
-    unique_imu_data = []
-    last_timestamp = -1
-    for row in imu_data:
-        if row[0] > last_timestamp:
-            unique_imu_data.append(row)
-            last_timestamp = row[0]
-
-    with open(imu_file_path, "w", newline='') as csvfile:
-        csvwriter = csv.writer(csvfile)
-        csvwriter.writerow(["# timestamp", "gyro_x", "gyro_y", "gyro_z", "accel_x", "accel_y", "accel_z"])
-        csvwriter.writerows(unique_imu_data)
+    log(f"Extracting IMU data from {log_file_path}")
+    
+    # Use dictionary to track unique timestamps (more efficient than sorting later)
+    unique_imu_records = {}
+    
+    try:
+        line_count = 0
+        gyro_line_count = 0
+        
+        with open(log_file_path, "r") as logfile:
+            for line_num, line in enumerate(logfile, 1):
+                line_count += 1
+                if "gyroOdo" in line:
+                    gyro_line_count += 1
+                    try:
+                        parts = line.split()
+                        if len(parts) < 20:  # Ensure we have enough parts
+                            continue
+                            
+                        timestamp = int(parts[0])
+                        # Only process this entry if we haven't seen this timestamp before
+                        if timestamp not in unique_imu_records:
+                            try:
+                                # Convert string data to float for consistent processing
+                                gyro_data = [float(x) for x in parts[17:20]]
+                                accel_data = [float(x) for x in parts[11:14]]
+                                unique_imu_records[timestamp] = gyro_data + accel_data
+                            except (ValueError, IndexError) as e:
+                                log(f"Error converting data in line {line_num}: {e}", level="WARNING")
+                                continue
+                    except (IndexError, ValueError) as e:
+                        log(f"Error parsing line {line_num}: {e}", level="WARNING")
+                        continue
+        
+        log(f"Processed {line_count} lines, found {gyro_line_count} gyroOdo lines, with {len(unique_imu_records)} unique timestamps")
+    except Exception as e:
+        log(f"Error reading log file: {e}", level="ERROR")
+        raise
+    
+    if not unique_imu_records:
+        log("No valid IMU records found in the log file", level="WARNING")
+        return
+    
+    # Prepare sorted data for writing to CSV
+    sorted_imu_data = [
+        [timestamp] + data 
+        for timestamp, data in sorted(unique_imu_records.items())
+    ]
+    
+    try:
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(os.path.abspath(imu_file_path)), exist_ok=True)
+        
+        with open(imu_file_path, "w", newline='') as csvfile:
+            csvwriter = csv.writer(csvfile)
+            csvwriter.writerow(["# timestamp", "gyro_x", "gyro_y", "gyro_z", "accel_x", "accel_y", "accel_z"])
+            csvwriter.writerows(sorted_imu_data)
+            log(f"IMU data saved to {imu_file_path} ({len(sorted_imu_data)} records)")
+    except Exception as e:
+        log(f"Error writing IMU CSV file: {e}", level="ERROR")
+        raise
 
     # process_imu_data(imu_file_path, save_dir=os.path.dirname(imu_file_path))
+
+
+def extract_rtk_data(log_file_path, rtk_file_path, apply_transform=True):
+    """
+    Extract RTK data from RRLDR_fprintf.log and generate a TUM format trajectory file.
+    
+    Args:
+        log_file_path: Path to the log file containing RTK data
+        rtk_file_path: Path to save the output RTK trajectory file in TUM format
+        apply_transform: Whether to apply coordinate system transformation (default: True)
+        
+    Raises:
+        FileNotFoundError: If the input log file doesn't exist
+        ValueError: If there are issues parsing the log file
+        
+    Returns:
+        Path to the created RTK file or None if no data was extracted
+    """
+    try:
+        import numpy as np  # Local import to reduce dependencies when not needed
+    except ImportError:
+        log("NumPy not available, coordinate transformation will be skipped", level="WARNING")
+        apply_transform = False
+    
+    if not os.path.exists(log_file_path):
+        raise FileNotFoundError(f"{log_file_path} does not exist.")
+
+    log(f"Extracting RTK data from {log_file_path}")
+    
+    # List to store the RTK data
+    rtk_data = []
+    
+    try:
+        line_count = 0
+        rtk_line_count = 0
+        valid_rtk_count = 0
+        
+        with open(log_file_path, "r") as logfile:
+            for line_num, line in enumerate(logfile, 1):
+                line_count += 1
+                if "rtk" in line:
+                    rtk_line_count += 1
+                    try:
+                        values = line.strip().split()
+                        
+                        # Ensure we have enough fields
+                        if len(values) < 19:  # We need at least the position and lat/long fields
+                            continue
+                        
+                        # Extract the timestamp (convert to seconds)
+                        timestamp = float(values[0]) / 1000.0
+                        
+                        # Extract position data
+                        pos_x = float(values[5])
+                        pos_y = float(values[6])
+                        pos_z = float(values[7])
+                        
+                        # Extract solution status and other metadata
+                        num_satellites = int(values[2]) if len(values) > 2 else 0
+                        solution_status = int(values[3]) if len(values) > 3 else 0
+                        velocity_status = int(values[4]) if len(values) > 4 else 0
+                        
+                        # For TUM format, we need orientation as quaternion
+                        # If not available in RTK data, use identity quaternion (no rotation)
+                        qx, qy, qz, qw = 0.0, 0.0, 0.0, 1.0
+                        
+                        # Optionally extract geodetic coordinates for reference
+                        lat = float(values[17]) if len(values) > 17 else 0.0
+                        lon = float(values[18]) if len(values) > 18 else 0.0
+                        alt = float(values[19]) if len(values) > 19 else 0.0
+                        
+                        # Add to our data list (only if valid solution status)
+                        if solution_status >= 1:  # Only use RTK data with valid solution
+                            rtk_data.append([
+                                timestamp, 
+                                pos_x, pos_y, pos_z, 
+                                qx, qy, qz, qw, 
+                                num_satellites, solution_status, velocity_status, 
+                                lat, lon, alt
+                            ])
+                            valid_rtk_count += 1
+                        
+                    except (IndexError, ValueError) as e:
+                        log(f"Error parsing RTK line {line_num}: {e}", level="WARNING")
+                        continue
+        
+        log(f"Processed {line_count} lines, found {rtk_line_count} RTK lines, with {valid_rtk_count} valid positions")
+    except Exception as e:
+        log(f"Error reading log file: {e}", level="ERROR")
+        raise
+    
+    if not rtk_data:
+        log("No valid RTK records found in the log file", level="WARNING")
+        return None
+    
+    # Sort by timestamp
+    rtk_data.sort(key=lambda x: x[0])
+    
+    # Apply coordinate transform if needed (RTK to local ENU frame)
+    if apply_transform and len(rtk_data) > 0 and 'np' in locals():
+        try:
+            # Define coordinate transformation if needed
+            # This is often needed to convert from global to local coordinates
+            # The transformation depends on your specific RTK setup
+            
+            # Example transformation (identity by default)
+            R_transform = np.eye(3)  # Identity rotation
+            t_transform = np.zeros(3)  # No translation
+            
+            # Apply transformation to each position
+            for i in range(len(rtk_data)):
+                # Extract position
+                pos = np.array([rtk_data[i][1], rtk_data[i][2], rtk_data[i][3]])
+                
+                # Apply transformation: R * pos + t
+                transformed_pos = R_transform.dot(pos) + t_transform
+                
+                # Update data with transformed position
+                rtk_data[i][1] = transformed_pos[0]
+                rtk_data[i][2] = transformed_pos[1]
+                rtk_data[i][3] = transformed_pos[2]
+                
+            log("Applied coordinate transformation to RTK positions")
+        except Exception as e:
+            log(f"Failed to apply coordinate transformation: {e}", level="WARNING")
+    
+    # Create output directory if it doesn't exist
+    os.makedirs(os.path.dirname(os.path.abspath(rtk_file_path)), exist_ok=True)
+    
+    # Write data in TUM format
+    try:
+        with open(rtk_file_path, "w") as outfile:
+            # Write header
+            outfile.write("# timestamp tx ty tz qx qy qz qw\n")
+            
+            # Write the TUM format data (timestamp, pos_x, pos_y, pos_z, qx, qy, qz, qw)
+            for data in rtk_data:
+                outfile.write(f"{data[0]:.6f} {data[1]:.6f} {data[2]:.6f} {data[3]:.6f} {data[4]:.6f} {data[5]:.6f} {data[6]:.6f} {data[7]:.6f}\n")
+        
+        log(f"Saved {len(rtk_data)} RTK records to TUM format file: {rtk_file_path}")
+        
+        # Also save the full RTK data with geodetic coordinates
+        full_rtk_path = rtk_file_path.replace('.txt', '_full.txt')
+        with open(full_rtk_path, "w") as outfile:
+            outfile.write("# timestamp tx ty tz qx qy qz qw num_sats status velocity_status lat lon alt\n")
+            for data in rtk_data:
+                # Write all available data fields
+                outfile.write(f"{data[0]:.6f} {data[1]:.6f} {data[2]:.6f} {data[3]:.6f} {data[4]:.6f} {data[5]:.6f} {data[6]:.6f} {data[7]:.6f} {int(data[8])} {int(data[9])} {int(data[10])} {data[11]:.8f} {data[12]:.8f} {data[13]:.3f}\n")
+        
+        log(f"Saved full RTK data with geodetic coordinates to: {full_rtk_path}")
+        
+        # Create other output formats if needed
+        # For example, a Maplab compatible format
+        maplab_rtk_path = rtk_file_path.replace('.txt', '_maplab.csv')
+        with open(maplab_rtk_path, "w", newline='') as outfile:
+            csvwriter = csv.writer(outfile)
+            # Maplab format header
+            csvwriter.writerow(["#timestamp [ns]", "p_RS_R_x [m]", "p_RS_R_y [m]", "p_RS_R_z [m]", 
+                               "q_RS_w []", "q_RS_x []", "q_RS_y []", "q_RS_z []"])
+            
+            for data in rtk_data:
+                # Convert time to nanoseconds
+                time_ns = int(data[0] * 1e9)
+                # Maplab uses w,x,y,z quaternion order (different from TUM)
+                csvwriter.writerow([time_ns, data[1], data[2], data[3], data[7], data[4], data[5], data[6]])
+                
+        log(f"Saved Maplab-compatible RTK data to: {maplab_rtk_path}")
+        
+    except Exception as e:
+        log(f"Error writing RTK trajectory file: {e}", level="ERROR")
+        raise
+    
+    return rtk_file_path
 
 
 if __name__ == "__main__":
