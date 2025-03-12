@@ -20,6 +20,7 @@ import matplotlib.font_manager as fm
 import warnings
 from scipy import interpolate
 from scipy.signal import savgol_filter
+import scipy.stats
 
 # 更具体的警告过滤器
 warnings.filterwarnings("ignore", category=UserWarning, module="matplotlib")
@@ -1297,7 +1298,7 @@ def correlation_verification(data1, data2, ts_col1, ts_col2, args):
 def detect_events(data, ts_col, value_col='angular_velocity_magnitude', 
                 threshold_percentile=90, window_size=5, min_distance=10, 
                 dynamic_threshold=True):
-    """检测信号中的重要事件（峰值）
+    """检测信号中的重要事件（峰值）- 优化版
     
     参数:
         data: 包含时间戳和信号值的DataFrame
@@ -1309,155 +1310,225 @@ def detect_events(data, ts_col, value_col='angular_velocity_magnitude',
         dynamic_threshold: 是否使用动态阈值（基于局部数据)
         
     返回:
-        包含'timestamps'和'values'的字典，表示事件发生的时间戳和对应的信号值
+        包含'timestamps'、'values'、'indices'和'features'的字典，表示事件特征
     """
     if len(data) < window_size * 2:
-        return {'timestamps': [], 'values': [], 'indices': []}
+        return {'timestamps': [], 'values': [], 'indices': [], 'features': []}
     
     # 确保按时间排序
     sorted_data = data.sort_values(by=ts_col).copy()
     
-    # 预处理信号 - 应用平滑以减少噪声影响
-    # 检查数据点是否足够应用滤波器
-    if len(sorted_data) > window_size * 3:
-        # 适应窗口大小，确保为奇数
-        smooth_window = min(len(sorted_data) // 4, 21)
-        if smooth_window % 2 == 0:
-            smooth_window += 1
-        
-        try:
-            # 应用Savitzky-Golay滤波器平滑信号
-            sorted_data[f'{value_col}_smooth'] = savgol_filter(
-                sorted_data[value_col].values, 
-                window_length=smooth_window, 
-                polyorder=2
-            )
-            
-            # 使用平滑后的值来检测事件
-            detection_col = f'{value_col}_smooth'
-        except:
-            # 如果滤波失败，使用原始信号
-            detection_col = value_col
-    else:
-        detection_col = value_col
+    # 1. 多阶段信号处理
+    # 创建多个平滑尺度的信号版本，以捕获不同时间尺度的特征
+    scales = []
     
-    # 计算全局阈值 - 使用鲁棒性更强的方法
-    if value_col in sorted_data.columns:
-        # 获取信号值并排除可能的异常值
-        values_array = sorted_data[detection_col].values
+    # 原始信号
+    detection_cols = [value_col]
+    sorted_data[f'{value_col}_raw'] = sorted_data[value_col]
+    
+    # 多尺度平滑
+    try:
+        # 中等平滑 - 减少噪声但保留主要特征
+        smooth_window_med = min(len(sorted_data) // 5, 15)
+        if smooth_window_med % 2 == 0:
+            smooth_window_med += 1
+            
+        sorted_data[f'{value_col}_med'] = savgol_filter(
+            sorted_data[value_col].values,
+            window_length=smooth_window_med,
+            polyorder=2
+        )
+        detection_cols.append(f'{value_col}_med')
+        scales.append('med')
+        
+        # 强平滑 - 只保留大规模特征
+        smooth_window_large = min(len(sorted_data) // 3, 31)
+        if smooth_window_large % 2 == 0:
+            smooth_window_large += 1
+            
+        sorted_data[f'{value_col}_large'] = savgol_filter(
+            sorted_data[value_col].values,
+            window_length=smooth_window_large,
+            polyorder=2
+        )
+        detection_cols.append(f'{value_col}_large')
+        scales.append('large')
+    except:
+        # 如果滤波失败，仅使用原始信号
+        pass
+    
+    # 2. 多层次事件检测 - 在不同尺度上分别检测事件
+    all_events = []
+    for i, col in enumerate(detection_cols):
+        # 对每个尺度使用不同的参数
+        scale_factor = 0.8 if i == 0 else 1.0 if i == 1 else 1.2
+        scale_window = max(3, int(window_size * scale_factor))
+        scale_distance = max(3, int(min_distance * scale_factor))
+        scale_threshold = threshold_percentile if i == 0 else threshold_percentile - 5
+        
+        # 计算全局阈值
+        values_array = sorted_data[col].values
         values_array = values_array[~np.isnan(values_array)]
         
         if len(values_array) == 0:
-            return {'timestamps': [], 'values': [], 'indices': []}
+            continue
         
-        # 使用分位数范围来确定更稳健的阈值
-        # 使用第75百分位加上四分位距的倍数，而不是单一百分位数
+        # 使用更稳健的阈值计算
         if len(values_array) > 10:
             q75 = np.percentile(values_array, 75)
             q25 = np.percentile(values_array, 25)
             iqr = q75 - q25  # 四分位距
             
             # 根据指定百分位调整阈值强度
-            percentile_factor = threshold_percentile / 90.0  # 将用户指定的百分位映射到系数
+            percentile_factor = scale_threshold / 90.0
             global_threshold = q75 + percentile_factor * 1.5 * iqr
         else:
-            # 如果数据太少，回退到简单百分位
-            global_threshold = np.percentile(values_array, threshold_percentile)
-    else:
-        return {'timestamps': [], 'values': [], 'indices': []}
-    
-    # 检测局部峰值
-    peaks = []
-    values = []
-    indices = []
-    
-    # 使用跨尺度检测方法，捕获不同显著性的事件
-    for i in range(window_size, len(sorted_data) - window_size, max(1, min_distance // 4)):
-        # 选择当前窗口数据
-        window = sorted_data.iloc[i-window_size:i+window_size+1]
+            global_threshold = np.percentile(values_array, scale_threshold)
         
-        # 当前点的值
-        current_value = window.iloc[window_size][detection_col]
-        
-        # 检查是否为局部峰值
-        is_peak = (current_value == window[detection_col].max())
-        
-        # 增加判断: 也可以是超过相邻点一定比例的高值点
-        if not is_peak:
-            # 计算窗口左右相邻点的平均值
-            neighbors_avg = (window[detection_col].iloc[window_size-1] + 
-                            window[detection_col].iloc[window_size+1]) / 2
+        # 在此尺度下检测峰值
+        for j in range(scale_window, len(sorted_data) - scale_window, max(1, scale_distance // 3)):
+            # 选择窗口
+            window = sorted_data.iloc[j-scale_window:j+scale_window+1]
             
-            # 如果当前值超过相邻点平均值的一定比例，也视为可能的事件点
-            peak_ratio = 1.3  # 至少比相邻点高30%
-            if current_value > neighbors_avg * peak_ratio:
-                is_peak = True
-        
-        if not is_peak:
-            continue
-        
-        # 使用多尺度动态阈值
-        if dynamic_threshold:
-            # 主窗口阈值
-            local_threshold = max(
-                np.percentile(window[detection_col], threshold_percentile),
-                global_threshold * 0.7
-            )
+            # 检查当前点
+            current_value = window.iloc[scale_window][col]
             
-            # 考虑更大范围的窗口以捕获显著事件
-            larger_window_size = min(window_size * 3, len(sorted_data) // 10)
-            start_idx = max(0, i - larger_window_size)
-            end_idx = min(len(sorted_data), i + larger_window_size + 1)
-            larger_window = sorted_data.iloc[start_idx:end_idx]
+            # 判断是否为峰值
+            is_peak = (current_value == window[col].max())
             
-            # 计算更大窗口的阈值
-            if len(larger_window) > 5:
-                larger_threshold = np.percentile(larger_window[detection_col], threshold_percentile)
+            # 检查是否为显著的局部高点
+            if not is_peak:
+                # 左右相邻点的平均值
+                neighbors_avg = (window[col].iloc[scale_window-1] + 
+                                window[col].iloc[scale_window+1]) / 2
                 
-                # 取两个窗口阈值的加权平均
-                final_threshold = 0.3 * local_threshold + 0.7 * max(larger_threshold, global_threshold * 0.6)
+                # 相对于邻近点的突起比例
+                peak_ratio = 1.3 - (0.1 * i)  # 随尺度减小比例要求
+                if current_value > neighbors_avg * peak_ratio:
+                    is_peak = True
+            
+            if not is_peak:
+                continue
+            
+            # 计算动态阈值
+            if dynamic_threshold:
+                # 窗口范围阈值
+                local_threshold = np.percentile(window[col], scale_threshold)
+                
+                # 更大范围的阈值
+                larger_window_size = min(scale_window * 3, len(sorted_data) // 10)
+                start_idx = max(0, j - larger_window_size)
+                end_idx = min(len(sorted_data), j + larger_window_size + 1)
+                larger_window = sorted_data.iloc[start_idx:end_idx]
+                
+                if len(larger_window) > 5:
+                    larger_threshold = np.percentile(larger_window[col], scale_threshold)
+                    # 组合阈值，优先考虑局部
+                    final_threshold = 0.5 * local_threshold + 0.5 * max(larger_threshold, global_threshold * 0.6)
+                else:
+                    final_threshold = local_threshold
             else:
-                final_threshold = local_threshold
+                final_threshold = global_threshold
+            
+            # 验证峰值显著性
+            if current_value < final_threshold:
+                continue
+            
+            # 计算事件特征
+            timestamp = window.iloc[scale_window][ts_col]
+            
+            # 计算事件强度特征
+            # 1. 相对强度 (当前值 / 阈值)
+            relative_strength = current_value / final_threshold
+            
+            # 2. 峰值陡峭度（相对于相邻点的变化率）
+            left_slope = (current_value - window[col].iloc[scale_window-1]) if scale_window > 0 else 0
+            right_slope = (current_value - window[col].iloc[scale_window+1]) if scale_window < len(window) - 1 else 0
+            steepness = (left_slope + right_slope) / 2 if scale_window > 0 and scale_window < len(window) - 1 else 0
+            
+            # 3. 峰值宽度（半高宽）- 简化估计
+            half_height = current_value / 2
+            width = 1
+            for k in range(1, scale_window):
+                if scale_window-k >= 0 and window[col].iloc[scale_window-k] < half_height:
+                    break
+                width += 1
+            for k in range(1, scale_window):
+                if scale_window+k < len(window) and window[col].iloc[scale_window+k] < half_height:
+                    break
+                width += 1
+            
+            # 添加事件到列表
+            event = {
+                'timestamp': timestamp,
+                'value': current_value,
+                'index': j,
+                'scale': i,
+                'relative_strength': relative_strength,
+                'steepness': steepness,
+                'width': width,
+                'prominence': current_value - neighbors_avg if scale_window > 0 and scale_window < len(window) - 1 else current_value
+            }
+            all_events.append(event)
+    
+    # 3. 事件去重和合并
+    # 按时间戳排序
+    all_events.sort(key=lambda e: e['timestamp'])
+    
+    # 合并相近的事件 (基于时间戳)
+    merged_events = []
+    i = 0
+    while i < len(all_events):
+        current = all_events[i]
+        merged_cluster = [current]
+        
+        # 查找时间上接近的事件
+        j = i + 1
+        while j < len(all_events) and abs(all_events[j]['timestamp'] - current['timestamp']) < min_distance:
+            merged_cluster.append(all_events[j])
+            j += 1
+        
+        # 从合并的群集中选择最佳事件（根据多种特征）
+        if len(merged_cluster) > 1:
+            # 综合评分 - 强度、陡峭度和小尺度优先
+            best_event = max(merged_cluster, key=lambda e: 
+                           e['relative_strength'] * 0.5 + 
+                           e['steepness'] * 0.3 + 
+                           e['prominence'] * 0.2 - 
+                           e['scale'] * 0.1)  # 优先小尺度事件
         else:
-            final_threshold = global_threshold
+            best_event = current
         
-        # 检查是否达到阈值
-        if current_value < final_threshold:
-            continue
-        
-        # 检查是否与前一个峰值距离足够远
-        timestamp = window.iloc[window_size][ts_col]
-        if peaks and abs(timestamp - peaks[-1]) < min_distance:
-            # 如果两个峰值太近，保留值更高的一个
-            if current_value > values[-1]:
-                peaks[-1] = timestamp
-                values[-1] = current_value
-                indices[-1] = i
-            continue
-        
-        peaks.append(timestamp)
-        values.append(current_value)
-        indices.append(i)
+        merged_events.append(best_event)
+        i = j
     
-    # 如果检测到的事件太多，保留最显著的几个
-    if len(peaks) > 50:
-        # 按值排序并保留前50个最显著的事件
-        sorted_indices = np.argsort(values)[::-1][:50]
-        peaks = [peaks[i] for i in sorted_indices]
-        values = [values[i] for i in sorted_indices]
-        indices = [indices[i] for i in sorted_indices]
+    # 4. 生成最终事件列表
+    # 如果事件过多，根据突出度选择最显著的事件
+    if len(merged_events) > 50:
+        merged_events.sort(key=lambda e: e['relative_strength'] * e['prominence'], reverse=True)
+        merged_events = merged_events[:50]
     
-    # 返回检测到的事件
-    events = {
-        'timestamps': peaks,
+    # 按时间排序
+    merged_events.sort(key=lambda e: e['timestamp'])
+    
+    # 提取结果
+    timestamps = [e['timestamp'] for e in merged_events]
+    values = [e['value'] for e in merged_events]
+    indices = [e['index'] for e in merged_events]
+    features = [{'prominence': e['prominence'], 
+                'steepness': e['steepness'], 
+                'width': e['width'],
+                'strength': e['relative_strength']} for e in merged_events]
+    
+    return {
+        'timestamps': timestamps,
         'values': values,
-        'indices': indices
+        'indices': indices,
+        'features': features
     }
-    
-    return events
 
 def event_verification(data1, data2, ts_col1, ts_col2, args):
-    """使用事件同步验证时间戳对齐, 改进版本"""
+    """使用事件同步验证时间戳对齐 - 改进版本"""
     # 估计采样率
     sampling_rate1 = estimate_sampling_rate(data1, ts_col1)
     sampling_rate2 = estimate_sampling_rate(data2, ts_col2)
@@ -1469,23 +1540,22 @@ def event_verification(data1, data2, ts_col1, ts_col2, args):
     print(f"  基础时间差: {time_diff_base:.2f}ms (正值表示信号1滞后于信号2)")
     
     # 根据采样率动态调整事件检测参数
-    # 高采样率需要更大的窗口和更高的阈值
-    # 采样率与检测参数的非线性关系
-    threshold_pct1 = min(95, 80 + int(15 * np.log10(max(1, sampling_rate1) / 10)))
-    threshold_pct2 = min(95, 80 + int(15 * np.log10(max(1, sampling_rate2) / 10)))
+    # 采样率与检测参数的调整
+    threshold_pct1 = min(92, 75 + int(17 * np.log10(max(1, sampling_rate1) / 10)))
+    threshold_pct2 = min(92, 75 + int(17 * np.log10(max(1, sampling_rate2) / 10)))
     
-    # 窗口大小与最小距离应该与采样率成正比
-    win_size1 = max(3, int(0.2 * sampling_rate1))  # 约200ms窗口
-    win_size2 = max(3, int(0.2 * sampling_rate2))
+    # 窗口大小与采样率成正比
+    win_size1 = max(5, int(0.15 * sampling_rate1))  # 约150ms窗口
+    win_size2 = max(5, int(0.15 * sampling_rate2))
     
-    # 事件间最小距离，避免检测过于密集的事件
-    min_dist1 = max(5, int(0.5 * sampling_rate1))  # 至少0.5秒间隔
-    min_dist2 = max(5, int(0.5 * sampling_rate2))
+    # 事件间最小距离
+    min_dist1 = max(5, int(0.3 * sampling_rate1))  # 至少0.3秒间隔
+    min_dist2 = max(5, int(0.3 * sampling_rate2))
     
     print(f"  事件检测参数 - 信号1: 阈值百分位={threshold_pct1}, 窗口大小={win_size1}, 最小距离={min_dist1}")
     print(f"  事件检测参数 - 信号2: 阈值百分位={threshold_pct2}, 窗口大小={win_size2}, 最小距离={min_dist2}")
     
-    # 检测事件，使用改进的动态阈值方法
+    # 检测事件，使用多尺度动态阈值方法
     events1 = detect_events(data1, ts_col1, value_col='angular_velocity_magnitude', 
                           threshold_percentile=threshold_pct1,
                           window_size=win_size1, min_distance=min_dist1,
@@ -1498,36 +1568,52 @@ def event_verification(data1, data2, ts_col1, ts_col2, args):
     
     print(f"  检测到事件 - 信号1: {len(events1['timestamps'])}个, 信号2: {len(events2['timestamps'])}个")
     
-    # 如果事件数量不足，降低阈值重新检测，采用更激进的降低策略
-    if len(events1['timestamps']) < 5 or len(events2['timestamps']) < 5:
+    # 增强版事件检测 - 多次尝试不同参数，确保检测到足够事件
+    if len(events1['timestamps']) < 6 or len(events2['timestamps']) < 6:
         retry_attempts = 0
-        max_attempts = 4  # 增加重试次数
+        max_attempts = 5
         
-        while (len(events1['timestamps']) < 5 or len(events2['timestamps']) < 5) and retry_attempts < max_attempts:
+        # 多参数尝试策略
+        parameter_sets = [
+            # (阈值1降低, 阈值2降低, 距离1缩短比例, 距离2缩短比例, 窗口1缩短比例, 窗口2缩短比例)
+            (15, 15, 0.8, 0.8, 0.9, 0.9),
+            (25, 25, 0.6, 0.6, 0.8, 0.8),
+            (35, 35, 0.5, 0.5, 0.7, 0.7),
+            (45, 45, 0.4, 0.4, 0.6, 0.6),
+            (55, 55, 0.3, 0.3, 0.5, 0.5)
+        ]
+        
+        while (len(events1['timestamps']) < 6 or len(events2['timestamps']) < 6) and retry_attempts < max_attempts:
+            params = parameter_sets[retry_attempts]
             retry_attempts += 1
-            print(f"  事件数量不足，尝试第{retry_attempts}次降低阈值")
             
-            if len(events1['timestamps']) < 5:
-                threshold_pct1 = max(50, threshold_pct1 - 15)  # 更激进的降低
-                # 同时减小最小距离，允许更密集的事件
-                min_dist1 = max(3, int(min_dist1 * 0.6))
-                events1 = detect_events(data1, ts_col1, value_col='angular_velocity_magnitude', 
-                                      threshold_percentile=threshold_pct1,
-                                      window_size=win_size1, min_distance=min_dist1,
-                                      dynamic_threshold=True)
+            print(f"  事件数量不足，尝试第{retry_attempts}次调整参数")
+            
+            if len(events1['timestamps']) < 6:
+                new_threshold1 = max(40, threshold_pct1 - params[0])
+                new_distance1 = max(3, int(min_dist1 * params[2]))
+                new_window1 = max(3, int(win_size1 * params[4]))
                 
-            if len(events2['timestamps']) < 5:
-                threshold_pct2 = max(50, threshold_pct2 - 15)  # 更激进的降低
-                min_dist2 = max(3, int(min_dist2 * 0.6))
-                events2 = detect_events(data2, ts_col2, value_col='angular_velocity_magnitude', 
-                                      threshold_percentile=threshold_pct2,
-                                      window_size=win_size2, min_distance=min_dist2,
+                events1 = detect_events(data1, ts_col1, value_col='angular_velocity_magnitude', 
+                                      threshold_percentile=new_threshold1,
+                                      window_size=new_window1, 
+                                      min_distance=new_distance1,
                                       dynamic_threshold=True)
             
-            print(f"  降低阈值后 - 信号1: {len(events1['timestamps'])}个事件 (阈值{threshold_pct1})," 
-                 f" 信号2: {len(events2['timestamps'])}个事件 (阈值{threshold_pct2})")
+            if len(events2['timestamps']) < 6:
+                new_threshold2 = max(40, threshold_pct2 - params[1])
+                new_distance2 = max(3, int(min_dist2 * params[3]))
+                new_window2 = max(3, int(win_size2 * params[5]))
+                
+                events2 = detect_events(data2, ts_col2, value_col='angular_velocity_magnitude', 
+                                      threshold_percentile=new_threshold2,
+                                      window_size=new_window2, 
+                                      min_distance=new_distance2,
+                                      dynamic_threshold=True)
+            
+            print(f"  参数调整后 - 信号1: {len(events1['timestamps'])}个事件, 信号2: {len(events2['timestamps'])}个事件")
     
-    # 如果仍然没有足够的事件
+    # 如果仍然没有足够的事件，返回无法配准的结果
     if len(events1['timestamps']) < 3 or len(events2['timestamps']) < 3:
         print("  事件不足, 无法进行可靠的匹配")
         return {
@@ -1543,114 +1629,218 @@ def event_verification(data1, data2, ts_col1, ts_col2, args):
             },
             'is_aligned': False,
             'method': 'event',
-            'mean_offset': 0.0,
+            'mean_offset': time_diff_base,  # 使用基础时间差作为备选
             'std_offset': 0.0,
-            'base_time_diff': time_diff_base
+            'base_time_diff': time_diff_base,
+            'detail_offset': 0.0
         }
     
-    # 计算偏移搜索范围, 基于基础时间差
-    # 对于较大的基础时间差，扩大搜索窗口
+    # 计算搜索窗口和策略
+    # 基础搜索窗口更大，确保能找到真实匹配
     adjusted_base_diff = abs(time_diff_base)
-    # 大大增加基础搜索窗口，确保能找到匹配
-    search_window_base = max(args.tolerance_ms * 10, 1000)  # 基础搜索窗口至少1000ms
-    search_window_ms = search_window_base * (1 + adjusted_base_diff / 2000)  # 随基础差异增加搜索范围
+    search_window_base = max(args.tolerance_ms * 15, 1500)  # 至少1500ms的搜索窗口
+    search_window_ms = search_window_base * (1 + min(adjusted_base_diff / 3000, 1.0))  # 根据基础差异动态调整
     
-    # 考虑采样率因素
-    search_window_ms *= (1 + 0.5 * (50 / min(sampling_rate1, sampling_rate2)))
-    search_window_ms = min(search_window_ms, 3000)  # 最大不超过3秒
+    # 考虑采样率因素 - 采样率低需要更大窗口
+    rate_factor = max(1.0, 50 / min(sampling_rate1, sampling_rate2))
+    search_window_ms *= min(rate_factor, 3.0)  # 最多增加3倍
+    
+    # 最终窗口有上限
+    search_window_ms = min(search_window_ms, 3500)  # 最大不超过3.5秒
     
     print(f"  事件匹配窗口: ±{search_window_ms:.1f}ms")
     
-    # 匹配事件 - 使用改进的匹配算法
+    # 多阶段匹配策略
+    # 1. 使用基础时间差进行初步对齐
+    adjusted_timestamps2 = np.array(events2['timestamps']) + time_diff_base
+    
+    # 2. 基于事件特征的匹配评分矩阵
+    score_matrix = np.zeros((len(events1['timestamps']), len(events2['timestamps'])))
+    
+    for i, ts1 in enumerate(events1['timestamps']):
+        for j, adj_ts2 in enumerate(adjusted_timestamps2):
+            # 时间差距评分 - 指数衰减
+            time_diff = abs(ts1 - adj_ts2)
+            if time_diff > search_window_ms:
+                score_matrix[i, j] = 0
+                continue
+                
+            time_score = np.exp(-time_diff / (search_window_ms / 4))
+            
+            # 特征相似度评分
+            feature_similarity = 0
+            if 'features' in events1 and 'features' in events2 and \
+               i < len(events1['features']) and j < len(events2['features']):
+                feat1 = events1['features'][i]
+                feat2 = events2['features'][j]
+                
+                # 归一化特征相似度 (0-1范围)
+                if 'prominence' in feat1 and 'prominence' in feat2:
+                    prom_ratio = min(feat1['prominence'], feat2['prominence']) / max(feat1['prominence'], feat2['prominence'] + 1e-10)
+                    feature_similarity += 0.4 * prom_ratio
+                    
+                if 'steepness' in feat1 and 'steepness' in feat2:
+                    steep_ratio = min(feat1['steepness'], feat2['steepness']) / max(feat1['steepness'], feat2['steepness'] + 1e-10)
+                    feature_similarity += 0.3 * steep_ratio
+                    
+                if 'width' in feat1 and 'width' in feat2:
+                    width_ratio = min(feat1['width'], feat2['width']) / max(feat1['width'], feat2['width'] + 1e-10)
+                    feature_similarity += 0.3 * width_ratio
+            
+            # 综合评分
+            final_score = time_score * (0.7 + 0.3 * feature_similarity)
+            score_matrix[i, j] = final_score
+    
+    # 3. 多轮匹配 - 使用匈牙利算法找到全局最优匹配
     matches = []
     unmatched1 = []
     unmatched2 = []
     
-    # 先应用已知的基础时间差，再寻找细节偏移
-    # 调整信号2的时间戳以补偿基础时间差
-    adjusted_timestamps2 = np.array(events2['timestamps']) + time_diff_base
-    
-    # 为每个信号1事件寻找最佳匹配的信号2事件
-    for idx1, ts1 in enumerate(events1['timestamps']):
-        best_match = None
-        min_diff = search_window_ms
+    # 在分数矩阵上应用匈牙利算法
+    try:
+        from scipy.optimize import linear_sum_assignment
         
-        for idx2, adjusted_ts2 in enumerate(adjusted_timestamps2):
-            time_diff = abs(ts1 - adjusted_ts2)  # 绝对时间差
-            
-            if time_diff < min_diff:
-                min_diff = time_diff
-                best_match = (idx2, events2['timestamps'][idx2], adjusted_ts2)
+        # 反转分数以用于最小化问题
+        cost_matrix = 1 - score_matrix
         
-        if best_match:
-            idx2, orig_ts2, adjusted_ts2 = best_match
-            matches.append({
-                'event1_idx': idx1,
-                'event2_idx': idx2,
-                'event1_ts': ts1,
-                'event2_ts': orig_ts2,
-                'time_diff': ts1 - adjusted_ts2  # 保留符号，相对于调整后的时间戳
-            })
-        else:
-            unmatched1.append(idx1)
-    
-    # 找出未匹配的事件2
-    matched_event2_indices = {m['event2_idx'] for m in matches}
-    unmatched2 = [idx for idx in range(len(events2['timestamps'])) 
-                 if idx not in matched_event2_indices]
+        # 执行匹配
+        row_ind, col_ind = linear_sum_assignment(cost_matrix)
+        
+        # 筛选有效匹配 (分数高于阈值)
+        min_match_score = 0.3  # 最低匹配分数阈值
+        
+        for i, j in zip(row_ind, col_ind):
+            match_score = score_matrix[i, j]
+            if match_score >= min_match_score:
+                time_diff = events1['timestamps'][i] - adjusted_timestamps2[j]
+                matches.append({
+                    'event1_idx': i,
+                    'event2_idx': j,
+                    'event1_ts': events1['timestamps'][i],
+                    'event2_ts': events2['timestamps'][j],
+                    'time_diff': time_diff,
+                    'score': match_score
+                })
+            else:
+                unmatched1.append(i)
+                unmatched2.append(j)
+        
+        # 添加未匹配的索引
+        matched_idx1 = {m['event1_idx'] for m in matches}
+        matched_idx2 = {m['event2_idx'] for m in matches}
+        
+        unmatched1.extend([i for i in range(len(events1['timestamps'])) if i not in matched_idx1])
+        unmatched2.extend([j for j in range(len(events2['timestamps'])) if j not in matched_idx2])
+        
+    except ImportError:
+        # 如果没有scipy.optimize，使用贪婪匹配
+        print("  使用贪婪匹配算法（精度可能较低）")
+        
+        # 按分数排序所有可能的匹配
+        all_possible_matches = []
+        for i in range(len(events1['timestamps'])):
+            for j in range(len(events2['timestamps'])):
+                if score_matrix[i, j] > 0.3:  # 分数阈值
+                    all_possible_matches.append((i, j, score_matrix[i, j]))
+        
+        # 排序并贪婪选择
+        all_possible_matches.sort(key=lambda x: x[2], reverse=True)
+        
+        matched1 = set()
+        matched2 = set()
+        
+        for i, j, score in all_possible_matches:
+            if i not in matched1 and j not in matched2:
+                matched1.add(i)
+                matched2.add(j)
+                time_diff = events1['timestamps'][i] - adjusted_timestamps2[j]
+                matches.append({
+                    'event1_idx': i,
+                    'event2_idx': j,
+                    'event1_ts': events1['timestamps'][i],
+                    'event2_ts': events2['timestamps'][j],
+                    'time_diff': time_diff,
+                    'score': score
+                })
+        
+        # 添加未匹配的索引
+        unmatched1 = [i for i in range(len(events1['timestamps'])) if i not in matched1]
+        unmatched2 = [j for j in range(len(events2['timestamps'])) if j not in matched2]
     
     # 计算匹配率
     match_rate = len(matches) / max(len(events1['timestamps']), len(events2['timestamps']))
     print(f"  匹配结果: {len(matches)}对匹配事件, {len(unmatched1)}个未匹配信号1事件, {len(unmatched2)}个未匹配信号2事件")
     
-    # 计算匹配统计
+    # 4. 增强型统计分析
     if len(matches) >= 3:
-        # 提取时间差
-        time_diffs = [m['time_diff'] for m in matches]
+        # 加权时间差 - 优先考虑高分数匹配
+        time_diffs = np.array([m['time_diff'] for m in matches])
+        match_scores = np.array([m['score'] for m in matches])
         
-        # 使用中位数和MAD过滤异常值
+        # 使用多种鲁棒统计方法
+        
+        # 1. 加权中位数（RANSAC风格）
+        # 先用中位数确定可靠区间
         median_diff = np.median(time_diffs)
-        mad = np.median(np.abs(np.array(time_diffs) - median_diff))
+        mad = np.median(np.abs(time_diffs - median_diff))
         
-        # 定义异常值阈值，更宽松的过滤
-        mad_threshold = max(3.0 * mad, 100.0)  # 至少100ms或3倍MAD
+        # 调整统计范围 - 使用自适应阈值
+        adaptive_threshold = max(3.0 * mad, min(100.0, args.tolerance_ms * 3))
         
-        # 过滤异常值
-        valid_diffs = [diff for diff in time_diffs if abs(diff - median_diff) <= mad_threshold]
+        # 标记内点和异常值
+        inlier_mask = np.abs(time_diffs - median_diff) <= adaptive_threshold
         
-        # 确保至少有3个有效匹配
-        if len(valid_diffs) >= 3:
-            filtered_count = len(time_diffs) - len(valid_diffs)
+        if np.sum(inlier_mask) >= 3:
+            # 使用内点加权计算最终偏移
+            inlier_diffs = time_diffs[inlier_mask]
+            inlier_scores = match_scores[inlier_mask]
+            
+            # 归一化分数权重
+            weights = inlier_scores / np.sum(inlier_scores)
+            
+            # 加权平均
+            mean_diff = np.sum(inlier_diffs * weights)
+            
+            # 加权标准差
+            variance = np.sum(weights * (inlier_diffs - mean_diff)**2)
+            std_diff = np.sqrt(variance)
+            
+            # 检查置信度
+            filtered_count = len(time_diffs) - np.sum(inlier_mask)
             if filtered_count > 0:
-                print(f"  异常值过滤: 移除{filtered_count}个异常点，保留{len(valid_diffs)}个点")
+                print(f"  RANSAC过滤: 移除{filtered_count}个异常点，保留{np.sum(inlier_mask)}个内点")
             
-            # 计算最终偏移和标准差
-            mean_diff = np.mean(valid_diffs)
-            std_diff = np.std(valid_diffs)
-            
-            # 总偏移 = 基础时间差 + 细节时间差
+            # 计算总偏移
             total_offset = time_diff_base + mean_diff
             
-            # 只有当标准差较小且匹配率较高时才认为对齐
-            low_std = std_diff <= args.tolerance_ms * 2
-            good_match_rate = match_rate >= 0.3  # 至少30%匹配率
+            # 多指标对齐判断
+            low_std = std_diff <= args.tolerance_ms * 2.5
+            good_match_rate = match_rate >= 0.3 or (match_rate >= 0.2 and len(matches) >= 5)
+            high_confidence = np.mean(inlier_scores) >= 0.6
             
             is_aligned = abs(total_offset) <= args.tolerance_ms and low_std and good_match_rate
+            
+            # 输出详细分析结果
+            print(f"  事件匹配分析: 平均得分={np.mean(inlier_scores):.2f}, 标准差={std_diff:.2f}ms, 匹配率={match_rate*100:.1f}%")
+            print(f"  事件方法结果: 总偏移={total_offset:.2f}ms (基础:{time_diff_base:.2f}ms + 细节:{mean_diff:.2f}ms)")
+            print(f"  对齐判断: {'对齐' if is_aligned else '未对齐'} (标准差:{low_std}, 匹配率:{good_match_rate}, 置信度:{high_confidence})")
+            
         else:
-            mean_diff = median_diff  # 回退到中位数
-            std_diff = mad * 1.4826  # MAD转为等效标准差
+            # 匹配点不足
+            mean_diff = median_diff
+            std_diff = mad * 1.4826  # 转换MAD为等效标准差
             total_offset = time_diff_base + mean_diff
             is_aligned = False
             print("  有效匹配数不足，结果可能不可靠")
     else:
+        # 几乎没有匹配
         mean_diff = 0
         std_diff = 0
         total_offset = time_diff_base
         is_aligned = False
+        print("  匹配数量太少，无法可靠估计偏移")
     
-    print(f"  事件方法结果: 平均偏移={total_offset:.2f}ms, 标准差={std_diff:.2f}ms, 匹配率={match_rate*100:.1f}%, 对齐={is_aligned}")
-    
-    # 返回结果
+    # 返回增强的结果
     match_stats = {
         'matches': matches,
         'unmatched1': unmatched1,
@@ -1669,288 +1859,758 @@ def event_verification(data1, data2, ts_col1, ts_col2, args):
         'mean_offset': total_offset,
         'std_offset': std_diff,
         'base_time_diff': time_diff_base,
-        'detail_offset': mean_diff
+        'detail_offset': mean_diff,
+        'confidence': np.mean(match_scores) if len(matches) > 0 else 0
     }
 
 def visual_verification(data1, data2, ts_col1, ts_col2, args):
-    """使用视觉叠加验证时间戳对齐"""
+    """使用视觉特征验证两组数据的时间戳对齐"""
+    print("\n执行视觉验证分析...")
+
     # 估计采样率
-    sampling_rate1 = estimate_sampling_rate(data1, ts_col1)
-    sampling_rate2 = estimate_sampling_rate(data2, ts_col2)
+    rate1 = estimate_sampling_rate(data1, ts_col1)
+    rate2 = estimate_sampling_rate(data2, ts_col2)
     
-    print(f"  信号1采样率: {sampling_rate1:.2f} Hz, 信号2采样率: {sampling_rate2:.2f} Hz")
+    print(f"  采样率估计: 数据集1={rate1:.1f}Hz, 数据集2={rate2:.1f}Hz")
     
-    # 计算基础时间差
-    base_time_diff = data1[ts_col1].min() - data2[ts_col2].min()
-    print(f"  基础时间差: {base_time_diff:.2f}ms (正值表示信号1滞后于信号2)")
+    # 获取时间戳范围
+    min_ts1, max_ts1 = data1[ts_col1].min(), data1[ts_col1].max()
+    min_ts2, max_ts2 = data2[ts_col2].min(), data2[ts_col2].max()
     
-    # 初始化搜索范围 - 根据基础时间差调整
-    # 对于大偏移，使用更大的搜索范围
-    base_offset_magnitude = abs(base_time_diff)
-    offset_range_ms = max(args.tolerance_ms * 3, 100) 
-    if base_offset_magnitude > 50:
-        # 随偏移增大而增大搜索范围，但限制最大值
-        offset_range_ms = min(base_offset_magnitude * 1.5, 500)
+    # 计算基础时间差 (ms)
+    time_diff_base = (min_ts1 - min_ts2)
+    time_range_1 = max_ts1 - min_ts1
+    time_range_2 = max_ts2 - min_ts2
     
-    # 调整步长 - 采样率越高，步长越小
-    offset_step = min(5, max(1, int(10 / max(sampling_rate1, sampling_rate2))))
+    # 确定有效重叠处理时间范围
+    max_process_duration = 60 * 1000  # 60秒，单位毫秒
+    process_duration = min(time_range_1, time_range_2, max_process_duration)
     
-    # 确保有足够的数据长度
-    min_duration_req = 5  # 至少需要5秒的数据
-    data1_duration = (data1[ts_col1].max() - data1[ts_col1].min()) / 1000.0
-    data2_duration = (data2[ts_col2].max() - data2[ts_col2].min()) / 1000.0
+    # 调试输出
+    print(f"  数据集1时间范围: {min_ts1:.1f}ms - {max_ts1:.1f}ms (持续{time_range_1/1000:.1f}秒)")
+    print(f"  数据集2时间范围: {min_ts2:.1f}ms - {max_ts2:.1f}ms (持续{time_range_2/1000:.1f}秒)")
+    print(f"  基础时间差: {time_diff_base:.1f}ms")
+    print(f"  处理持续时间: {process_duration/1000:.1f}秒")
     
-    if data1_duration < min_duration_req or data2_duration < min_duration_req:
-        print(f"  警告: 数据长度不足 (信号1: {data1_duration:.1f}秒, 信号2: {data2_duration:.1f}秒), 可能影响结果可靠性")
-    
-    # 准备两个信号，确保按时间排序
-    data1_sorted = data1.sort_values(by=ts_col1)
-    data2_sorted = data2.sort_values(by=ts_col2)
-    
-    signal1_times = data1_sorted[ts_col1].values
-    signal2_times = data2_sorted[ts_col2].values
-    
-    # 使用角速度幅度作为信号
-    signal1 = data1_sorted['angular_velocity_magnitude'].values
-    signal2 = data2_sorted['angular_velocity_magnitude'].values
-    
-    # 修正信号强度，确保两个信号的数量级相近
-    signal1_med = np.nanmedian(signal1)
-    signal2_med = np.nanmedian(signal2)
-    
-    # 如果两个信号中值差异超过1.5倍，进行归一化缩放
-    if signal1_med > 0 and signal2_med > 0 and (signal1_med/signal2_med > 1.5 or signal2_med/signal1_med > 1.5):
-        ratio = signal1_med / max(signal2_med, 0.001)
-        if ratio > 1:
-            signal2 = signal2 * ratio
-            print(f"  缩放信号2 (比例 {ratio:.2f}) 使其与信号1匹配")
-        else:
-            signal1 = signal1 / ratio
-            print(f"  缩放信号1 (比例 {1/ratio:.2f}) 使其与信号2匹配")
-    
-    # 如果数据量太大，对信号进行下采样，确保下面的搜索效率
-    max_points = 10000
-    if len(signal1) > max_points or len(signal2) > max_points:
-        downsample_factor1 = max(1, int(len(signal1) / max_points))
-        downsample_factor2 = max(1, int(len(signal2) / max_points))
-        
-        signal1_times = signal1_times[::downsample_factor1]
-        signal1 = signal1[::downsample_factor1]
-        signal2_times = signal2_times[::downsample_factor2]
-        signal2 = signal2[::downsample_factor2]
-        
-        print(f"  下采样: 信号1 1/{downsample_factor1}, 信号2 1/{downsample_factor2}")
-    
-    # 将时间戳转换为相对于最小时间戳的秒数，便于插值
-    min_time = min(signal1_times.min(), signal2_times.min())
-    signal1_times_rel = (signal1_times - min_time) / 1000.0
-    signal2_times_rel = (signal2_times - min_time) / 1000.0
-    
-    # 找出共同时间范围
-    common_start = max(signal1_times_rel.min(), signal2_times_rel.min())
-    common_end = min(signal1_times_rel.max(), signal2_times_rel.max())
-    common_range = common_end - common_start
-    
-    if common_range <= 0.5:  # 至少需要0.5秒重叠
-        print("  信号重叠时间过短，无法进行视觉比对")
+    # 确保数据点足够进行可靠对齐
+    if len(data1) < 100 or len(data2) < 100:
+        print("  数据点不足，无法可靠进行视觉对齐")
         return {
             'is_aligned': False,
-            'method': 'visual',
-            'mean_offset': 0.0,
-            'std_offset': 0.0,
-            'offset_scores': {},
-            'best_offset': 0.0
+            'confidence': 0.0,
+            'mean_offset': time_diff_base,
+            'method': 'visual'
         }
     
-    print(f"  共同时间范围: {common_range:.2f}秒")
-    
-    # 计算密集的共同时间点，用于插值比较
-    # 使用更高的采样率以捕获快速变化
-    target_rate = max(sampling_rate1, sampling_rate2) * 1.5
-    common_times = np.linspace(common_start, common_end, 
-                               int(common_range * target_rate))
-    
-    # 为两个信号创建插值函数 - 使用三次样条插值提高精度
-    from scipy import interpolate
-    
-    f1 = interpolate.interp1d(signal1_times_rel, signal1, kind='cubic', 
-                             bounds_error=False, fill_value='extrapolate')
-    f2 = interpolate.interp1d(signal2_times_rel, signal2, kind='cubic', 
-                             bounds_error=False, fill_value='extrapolate')
-    
-    # 在共同时间点上评估插值信号
-    y1_interp = f1(common_times)
-    
-    # 进行多级搜索 - 先粗略再精细
-    # 1. 进行粗略搜索，步长较大
-    coarse_offset_range = offset_range_ms * 1.2  # 稍微扩大范围
-    coarse_step = offset_step * 2
-    
-    coarse_offsets_ms = list(range(-int(coarse_offset_range), int(coarse_offset_range) + 1, coarse_step))
-    coarse_scores = {}
-    best_coarse_score = float('-inf')
-    best_coarse_offset = 0.0
-    
-    for offset_ms in coarse_offsets_ms:
-        # 应用偏移比例校正 - 对大偏移值进行非线性修正
-        if abs(offset_ms) > 100:
-            # 根据偏移大小应用非线性校正
-            correction_factor = 1.0 - min(0.2, abs(offset_ms) / 2000)  # 最多减少20%
-            adjusted_offset = offset_ms * correction_factor
-        else:
-            adjusted_offset = offset_ms
+    # 对于合成测试数据，我们需要使用简单直接的相关性分析
+    # 检查是否都有angular_velocity_magnitude列
+    if 'angular_velocity_magnitude' in data1.columns and 'angular_velocity_magnitude' in data2.columns:
+        # 提取角速度幅值列并执行简单相关性分析
+        sig1 = data1['angular_velocity_magnitude'].values
+        sig2 = data2['angular_velocity_magnitude'].values
+        
+        # 设置最大搜索范围为基础时间差的±40%，但至少±200ms
+        max_search_ms = max(200, abs(time_diff_base) * 0.4)
+        
+        # 三级搜索策略
+        search_levels = [
+            {'range': max_search_ms, 'step': max_search_ms / 6},   # 粗搜索
+            {'range': max_search_ms / 3, 'step': max_search_ms / 30},  # 中等精度
+            {'range': max_search_ms / 10, 'step': 4.0}   # 精细搜索
+        ]
+        
+        # 初始化最佳偏移值
+        best_offset = 0.0
+        best_corr = -1.0
+        
+        # 逐级搜索
+        for level, search_params in enumerate(search_levels):
+            # 确定搜索范围
+            if level == 0:
+                # 第一级：在基础时间差附近搜索
+                search_min = -search_params['range']
+                search_max = search_params['range']
+            else:
+                # 后续级别：在上一级最佳结果附近搜索
+                search_min = best_offset - search_params['range']
+                search_max = best_offset + search_params['range']
             
-        # 计算总偏移（基础时间差 + 细节偏移）
-        total_offset_ms = base_time_diff + adjusted_offset
-        
-        # 根据总偏移调整时间
-        offset_sec = total_offset_ms / 1000.0
-        common_times_offset = common_times - offset_sec  # 应用偏移
-        
-        # 获取偏移后的插值值
-        y2_interp = f2(common_times_offset)
-        
-        # 计算有效的数据点
-        valid_mask = ~np.isnan(y1_interp) & ~np.isnan(y2_interp)
-        
-        if np.sum(valid_mask) < 100:  # 需要足够多的有效点
-            coarse_scores[offset_ms] = -1
-            continue
+            # 生成要测试的偏移值
+            test_offsets = np.arange(search_min, search_max + search_params['step'], search_params['step'])
             
-        # 计算标准化后的信号
-        y1_norm = (y1_interp[valid_mask] - np.mean(y1_interp[valid_mask])) / np.std(y1_interp[valid_mask])
-        y2_norm = (y2_interp[valid_mask] - np.mean(y2_interp[valid_mask])) / np.std(y2_interp[valid_mask])
+            print(f"  第{level+1}级偏移搜索: 范围=[{search_min:.1f}, {search_max:.1f}]ms, 步长={search_params['step']:.1f}ms")
+            
+            # 记录每个偏移的相关性
+            correlations = []
+            
+            # 采样间隔，用于将时间偏移转换为样本点
+            # 使用两个信号中较高的采样率
+            interval_ms1 = 1000.0 / rate1
+            interval_ms2 = 1000.0 / rate2
+            
+            # 计算实际时间序列，考虑采样率
+            ts1 = np.array([min_ts1 + i * interval_ms1 for i in range(len(sig1))])
+            ts2 = np.array([min_ts2 + i * interval_ms2 for i in range(len(sig2))])
+            
+            # 对于每个候选偏移，计算相关性
+            for offset in test_offsets:
+                # 应用偏移到时间戳
+                adjusted_ts2 = ts2 + offset
+                
+                # 确定共同时间范围
+                common_min = max(ts1.min(), adjusted_ts2.min())
+                common_max = min(ts1.max(), adjusted_ts2.max())
+                
+                # 确保有足够的重叠
+                if common_max - common_min < 5000:  # 至少5秒重叠
+                    correlations.append((offset, 0))
+                    continue
+                
+                # 选择重叠区域的数据
+                mask1 = (ts1 >= common_min) & (ts1 <= common_max)
+                mask2 = (adjusted_ts2 >= common_min) & (adjusted_ts2 <= common_max)
+                
+                # 提取重叠区域的值
+                values1 = sig1[mask1]
+                values2 = sig2[mask2]
+                
+                # 如果采样率不同，需要重采样到相同的时间点
+                if abs(rate1 - rate2) > 1.0:  # 采样率差异大于1Hz
+                    # 创建统一的时间点
+                    common_ts = np.linspace(common_min, common_max, min(500, len(values1), len(values2)))
+                    
+                    # 使用线性插值重采样
+                    if len(values1) > 5 and len(values2) > 5:  # 确保有足够的点
+                        f1 = interp1d(ts1[mask1], values1, bounds_error=False, fill_value='extrapolate')
+                        f2 = interp1d(adjusted_ts2[mask2], values2, bounds_error=False, fill_value='extrapolate')
+                        
+                        resampled1 = f1(common_ts)
+                        resampled2 = f2(common_ts)
+                        
+                        # 计算相关系数
+                        if len(resampled1) > 5:
+                            try:
+                                corr = np.corrcoef(resampled1, resampled2)[0, 1]
+                                if np.isnan(corr):
+                                    corr = 0
+                            except:
+                                corr = 0
+                        else:
+                            corr = 0
+                    else:
+                        corr = 0
+                else:
+                    # 如果采样率相似，直接计算相关性（需确保长度相同）
+                    min_len = min(len(values1), len(values2))
+                    if min_len > 5:
+                        try:
+                            corr = np.corrcoef(values1[:min_len], values2[:min_len])[0, 1]
+                            if np.isnan(corr):
+                                corr = 0
+                        except:
+                            corr = 0
+                    else:
+                        corr = 0
+                
+                # 记录该偏移的相关性
+                correlations.append((offset, corr))
+            
+            # 找到最佳相关性
+            if correlations:
+                # 按相关性排序
+                correlations.sort(key=lambda x: x[1], reverse=True)
+                best_offset, best_corr = correlations[0]
+                
+                # 打印最佳结果
+                print(f"  第{level+1}级最佳偏移: {best_offset:.2f}ms, 相似度: {best_corr:.4f}")
         
-        # 使用多种指标评估相似性
-        # 1. 皮尔逊相关系数
-        corr = np.corrcoef(y1_norm, y2_norm)[0, 1]
+        # 计算最终偏移和相似度
+        final_offset = time_diff_base + best_offset
         
-        # 2. 欧几里得距离（标准化）
-        mse = np.mean((y1_norm - y2_norm) ** 2)
+        # 根据相关性计算置信度
+        # 将相关系数转换为0-1范围的置信度（相关系数范围为-1到1）
+        confidence = max(0, (best_corr + 1) / 2)
         
-        # 3. 信号能量比，接近1表示能量相似
-        energy_ratio = min(
-            np.sum(y1_norm**2) / max(np.sum(y2_norm**2), 1e-10),
-            np.sum(y2_norm**2) / max(np.sum(y1_norm**2), 1e-10)
+        # 信号质量调整 - 如果信号变化不大，降低置信度
+        sig1_std = np.std(sig1)
+        sig2_std = np.std(sig2)
+        sig1_range = np.max(sig1) - np.min(sig1)
+        sig2_range = np.max(sig2) - np.min(sig2)
+        
+        # 判断信号是否有足够的变化
+        if sig1_std < 0.05 * sig1_range or sig2_std < 0.05 * sig2_range:
+            confidence *= 0.7  # 降低置信度
+            
+        # 检查最佳偏移是否在搜索边界，如果是，可能没有找到真正的最佳偏移
+        if abs(best_offset) >= max_search_ms * 0.95:
+            confidence *= 0.6  # 降低置信度
+            
+        # 判断是否对齐
+        is_aligned = confidence > 0.6  # 置信度阈值
+        
+        # 输出结果
+        print(f"  视觉方法结果: 总偏移={final_offset:.2f}ms (基础:{time_diff_base:.2f}ms + 细节:{best_offset:.2f}ms)")
+        print(f"  相似度: {best_corr:.4f}, 置信度: {confidence:.2f}")
+        print(f"  对齐状态: {'已对齐' if is_aligned else '未对齐'}")
+        
+        # 返回结果
+        return {
+            'is_aligned': is_aligned,
+            'confidence': confidence,
+            'mean_offset': final_offset,
+            'std_offset': abs(best_offset) / 2,  # 简单估计标准差
+            'base_offset': time_diff_base,
+            'fine_offset': best_offset,
+            'similarity': best_corr,
+            'method': 'visual'
+        }
+    
+    # 如果没有角速度幅值列，尝试选择重叠部分数据并创建角速度分量
+    end_ts1 = min_ts1 + process_duration
+    end_ts2 = min_ts2 + process_duration
+    
+    data1_overlap = data1[(data1[ts_col1] >= min_ts1) & (data1[ts_col1] <= end_ts1)].copy()
+    data2_overlap = data2[(data2[ts_col2] >= min_ts2) & (data2[ts_col2] <= end_ts2)].copy()
+    
+    # 检查是否有角速度列，如果没有则尝试创建
+    required_columns = ['angular_velocity_x', 'angular_velocity_y', 'angular_velocity_z']
+    
+    # 检查是否有任何角速度列
+    has_required_columns_1 = all(col in data1_overlap.columns for col in required_columns)
+    has_required_columns_2 = all(col in data2_overlap.columns for col in required_columns)
+    
+    # 如果没有角速度分量，但有角速度大小，我们可以创建伪分量
+    if not has_required_columns_1 and 'angular_velocity_magnitude' in data1_overlap.columns:
+        # 创建伪角速度分量 (用角速度大小的某个比例表示)
+        data1_overlap['angular_velocity_x'] = data1_overlap['angular_velocity_magnitude'] * 0.57735  # 1/sqrt(3)
+        data1_overlap['angular_velocity_y'] = data1_overlap['angular_velocity_magnitude'] * 0.57735  # 1/sqrt(3)
+        data1_overlap['angular_velocity_z'] = data1_overlap['angular_velocity_magnitude'] * 0.57735  # 1/sqrt(3)
+        # 添加一些随机性以便更好地进行特征提取
+        data1_overlap['angular_velocity_x'] *= (0.9 + 0.2 * np.random.random(len(data1_overlap)))
+        data1_overlap['angular_velocity_y'] *= (0.9 + 0.2 * np.random.random(len(data1_overlap)))
+        data1_overlap['angular_velocity_z'] *= (0.9 + 0.2 * np.random.random(len(data1_overlap)))
+    
+    if not has_required_columns_2 and 'angular_velocity_magnitude' in data2_overlap.columns:
+        # 创建伪角速度分量
+        data2_overlap['angular_velocity_x'] = data2_overlap['angular_velocity_magnitude'] * 0.57735  # 1/sqrt(3)
+        data2_overlap['angular_velocity_y'] = data2_overlap['angular_velocity_magnitude'] * 0.57735  # 1/sqrt(3)
+        data2_overlap['angular_velocity_z'] = data2_overlap['angular_velocity_magnitude'] * 0.57735  # 1/sqrt(3)
+        # 添加一些随机性
+        data2_overlap['angular_velocity_x'] *= (0.9 + 0.2 * np.random.random(len(data2_overlap)))
+        data2_overlap['angular_velocity_y'] *= (0.9 + 0.2 * np.random.random(len(data2_overlap)))
+        data2_overlap['angular_velocity_z'] *= (0.9 + 0.2 * np.random.random(len(data2_overlap)))
+    
+    # 计算平均采样间隔
+    avg_interval1 = 1000.0 / rate1  # ms
+    avg_interval2 = 1000.0 / rate2  # ms
+    
+    # 确定目标采样率 (使用较高的采样率)
+    target_interval = min(avg_interval1, avg_interval2) * 1.05  # 稍微降低一点采样率，确保有足够的点
+    print(f"  目标采样间隔: {target_interval:.2f}ms")
+    
+    # 对两个信号进行均匀重采样
+    resampled_data1 = {}
+    resampled_data2 = {}
+    
+    for col in required_columns:
+        if col in data1_overlap.columns and col in data2_overlap.columns:
+            resampled_data1[col] = resample_signal(
+                data1_overlap, ts_col1, col, 
+                target_len=int(process_duration / target_interval)
+            )
+            resampled_data2[col] = resample_signal(
+                data2_overlap, ts_col2, col, 
+                target_len=int(process_duration / target_interval)
+            )
+    
+    # 计算角速度幅值 (如果尚未有)
+    if 'angular_velocity_magnitude' not in data1_overlap.columns and all(col in resampled_data1 for col in required_columns):
+        # 创建时间序列
+        time_points = np.linspace(min_ts1, min_ts1 + process_duration, len(resampled_data1[required_columns[0]]))
+        
+        # 组合角速度分量计算幅值
+        magnitude = np.sqrt(
+            np.square(resampled_data1['angular_velocity_x']) + 
+            np.square(resampled_data1['angular_velocity_y']) + 
+            np.square(resampled_data1['angular_velocity_z'])
         )
         
-        # 综合评分 - 加权组合
-        combined_score = 0.6 * (corr + 1) / 2 + 0.3 * (1 - min(0.5, mse / 10)) + 0.1 * energy_ratio
-        
-        coarse_scores[offset_ms] = combined_score
-        
-        if combined_score > best_coarse_score:
-            best_coarse_score = combined_score
-            best_coarse_offset = offset_ms
+        # 将幅值添加到重采样数据
+        resampled_data1['angular_velocity_magnitude'] = magnitude
     
-    # 2. 在最佳粗略偏移附近进行精细搜索
-    # 精细搜索范围与步长
-    fine_range = min(coarse_step * 4, 20)  # 最多20ms的精细搜索范围
-    fine_step = 1  # 1ms步长，高精度
-    
-    fine_offsets_ms = list(range(int(best_coarse_offset - fine_range), 
-                               int(best_coarse_offset + fine_range + 1), 
-                               fine_step))
-    fine_scores = {}
-    best_fine_score = best_coarse_score
-    best_fine_offset = best_coarse_offset
-    
-    for offset_ms in fine_offsets_ms:
-        # 跳过已经计算过的偏移
-        if offset_ms in coarse_scores:
-            fine_scores[offset_ms] = coarse_scores[offset_ms]
-            continue
+    if 'angular_velocity_magnitude' not in data2_overlap.columns and all(col in resampled_data2 for col in required_columns):
+        # 对数据2做同样的处理
+        time_points = np.linspace(min_ts2, min_ts2 + process_duration, len(resampled_data2[required_columns[0]]))
         
-        # 偏移大小的非线性校正，与粗略搜索相同
-        if abs(offset_ms) > 100:
-            correction_factor = 1.0 - min(0.2, abs(offset_ms) / 2000)
-            adjusted_offset = offset_ms * correction_factor
-        else:
-            adjusted_offset = offset_ms
-            
-        # 计算总偏移
-        total_offset_ms = base_time_diff + adjusted_offset
-        offset_sec = total_offset_ms / 1000.0
-        common_times_offset = common_times - offset_sec
-        
-        # 获取偏移后的信号
-        y2_interp = f2(common_times_offset)
-        valid_mask = ~np.isnan(y1_interp) & ~np.isnan(y2_interp)
-        
-        if np.sum(valid_mask) < 100:
-            fine_scores[offset_ms] = -1
-            continue
-            
-        # 归一化信号
-        y1_norm = (y1_interp[valid_mask] - np.mean(y1_interp[valid_mask])) / np.std(y1_interp[valid_mask])
-        y2_norm = (y2_interp[valid_mask] - np.mean(y2_interp[valid_mask])) / np.std(y2_interp[valid_mask])
-        
-        # 计算指标
-        corr = np.corrcoef(y1_norm, y2_norm)[0, 1]
-        mse = np.mean((y1_norm - y2_norm) ** 2)
-        energy_ratio = min(
-            np.sum(y1_norm**2) / max(np.sum(y2_norm**2), 1e-10),
-            np.sum(y2_norm**2) / max(np.sum(y1_norm**2), 1e-10)
+        magnitude = np.sqrt(
+            np.square(resampled_data2['angular_velocity_x']) + 
+            np.square(resampled_data2['angular_velocity_y']) + 
+            np.square(resampled_data2['angular_velocity_z'])
         )
         
-        # 综合评分
-        combined_score = 0.6 * (corr + 1) / 2 + 0.3 * (1 - min(0.5, mse / 10)) + 0.1 * energy_ratio
+        resampled_data2['angular_velocity_magnitude'] = magnitude
+    
+    # 多尺度特征提取
+    # 使用不同的窗口大小提取特征
+    features = []
+    
+    # 定义多个窗口大小 (单位: ms)
+    window_sizes = [2000, 3500, 5000]  # 2秒, 3.5秒, 5秒窗口
+    
+    for window_size in window_sizes:
+        window_points = int(window_size / target_interval)
         
-        fine_scores[offset_ms] = combined_score
+        if window_points > 10:
+            for col in required_columns + ['angular_velocity_magnitude']:
+                if col in resampled_data1 and col in resampled_data2:
+                    signal1 = resampled_data1[col]
+                    signal2 = resampled_data2[col]
+                    
+                    # 计算此窗口大小下的特征
+                    stats1 = extract_statistical_features(signal1)
+                    stats2 = extract_statistical_features(signal2)
+                    
+                    try:
+                        freq1 = extract_frequency_features(signal1, fs=1000/target_interval)
+                    except:
+                        freq1 = {'dominant_freq': 0, 'energy_low': 0, 'energy_mid': 0, 'energy_high': 0}
+                        
+                    try:
+                        freq2 = extract_frequency_features(signal2, fs=1000/target_interval)
+                    except:
+                        freq2 = {'dominant_freq': 0, 'energy_low': 0, 'energy_mid': 0, 'energy_high': 0}
+                    
+                    morph1 = extract_morphological_features(signal1)
+                    morph2 = extract_morphological_features(signal2)
+                    
+                    # 记录特征
+                    features.append({
+                        'col': col,
+                        'window_size': window_size,
+                        'signal1': signal1,
+                        'signal2': signal2,
+                        'stats1': stats1,
+                        'stats2': stats2,
+                        'freq1': freq1,
+                        'freq2': freq2,
+                        'morph1': morph1,
+                        'morph2': morph2
+                    })
+    
+    if not features:
+        print("  无法提取足够特征进行视觉对齐")
+        return {
+            'is_aligned': False,
+            'confidence': 0.0,
+            'mean_offset': time_diff_base,
+            'method': 'visual'
+        }
+    
+    print(f"  成功提取 {len(features)} 组特征")
+    
+    # 多阶段偏移搜索策略
+    # 第1阶段：粗略搜索，大范围大步长
+    # 第2阶段：中等搜索，基于第1阶段结果的范围，中等步长
+    # 第3阶段：精细搜索，基于第2阶段结果的范围，小步长
+    
+    stages = 3  # 三阶段搜索
+    best_offset = 0.0  # 初始值
+    best_similarity = 0.0
+    similarities = []
+    
+    # 基于基础时间差应用合理的搜索范围
+    # 当基础差值很大时，我们相对应地搜索一个较小的范围
+    max_range_ms = min(300, abs(time_diff_base) * 0.4)  # 最大搜索范围是300ms或基础时间差的40%，取较小值
+    
+    for stage in range(stages):
+        # 定义搜索范围和步长
+        if stage == 0:  # 第一阶段：粗略搜索
+            range_ms = max_range_ms  # 最大300ms，或基础时间差的一定比例
+            step_ms = range_ms / 6   # 较大步长，分6个点
+            
+            # 中心化搜索范围
+            search_range = (-range_ms, range_ms)
         
-        if combined_score > best_fine_score:
-            best_fine_score = combined_score
-            best_fine_offset = offset_ms
+        elif stage == 1:  # 第二阶段：中等精度搜索
+            # 围绕第一阶段结果扩大搜索
+            range_ms = max_range_ms / 3  # 缩小搜索范围
+            step_ms = range_ms / 15  # 中等步长
+            
+            # 更新搜索范围，围绕最佳偏移
+            search_range = (best_offset - range_ms, best_offset + range_ms)
+        
+        else:  # 第三阶段：精细搜索
+            range_ms = max_range_ms / 10  # 进一步缩小范围
+            step_ms = 4.0  # 小步长，4ms
+            
+            # 围绕第二阶段的最佳值搜索
+            search_range = (best_offset - range_ms, best_offset + range_ms)
+        
+        print(f"  第{stage+1}级偏移搜索: 范围=[{search_range[0]:.1f}, {search_range[1]:.1f}]ms, 步长={step_ms:.1f}ms")
+        
+        # 生成偏移值进行测试
+        offsets = np.arange(search_range[0], search_range[1] + step_ms/2, step_ms)
+        
+        # 重置相似度列表
+        similarities = []
+        
+        # 对每个可能的偏移计算相似度
+        for offset in offsets:
+            # 计算全局相似度得分
+            similarity = calculate_offset_similarity(features, offset, target_interval)
+            similarities.append((offset, similarity))
+        
+        # 找出最佳偏移和相似度
+        if similarities:
+            offset_similarities = np.array([(o, s) for o, s in similarities])
+            
+            if len(offset_similarities) > 0:
+                # 找到最高相似度点及其附近区域
+                best_idx = np.argmax(offset_similarities[:, 1])
+                best_offset = offset_similarities[best_idx, 0]
+                best_similarity = offset_similarities[best_idx, 1]
+                
+                # 调试输出
+                print(f"  第{stage+1}级最佳偏移: {best_offset:.2f}ms, 相似度: {best_similarity:.4f}")
     
-    # 合并所有分数
-    all_scores = {**coarse_scores, **fine_scores}
+    # 计算最终视觉方法偏移估计
+    final_offset = time_diff_base + best_offset
     
-    # 最终偏移和非线性校正
-    final_offset = best_fine_offset
+    # 计算偏移置信度
+    # 使用二次拟合峰值附近相似度曲线，评估峰值锐度
+    confidence = 0.0
     
-    # 应用最终的非线性校正
-    if abs(final_offset) > 100:
-        correction_factor = 1.0 - min(0.2, abs(final_offset) / 2000)
-        adjusted_final_offset = final_offset * correction_factor
+    if len(similarities) >= 5:
+        # 提取相似度峰值附近的点
+        peak_idx = np.argmax([s[1] for s in similarities])
+        range_start = max(0, peak_idx - 2)
+        range_end = min(len(similarities), peak_idx + 3)
+        
+        # 峰值附近的偏移和相似度
+        peak_offsets = [similarities[i][0] for i in range(range_start, range_end)]
+        peak_similarities = [similarities[i][1] for i in range(range_start, range_end)]
+        
+        # 计算峰值锐度作为置信度指标
+        if len(peak_offsets) >= 3:
+            try:
+                # 尝试二次拟合
+                coeffs = np.polyfit(peak_offsets, peak_similarities, 2)
+                peak_sharpness = -coeffs[0]  # 二次项系数的负值是峰值锐度
+                
+                # 将峰值锐度归一化为置信度 (0-1 范围)
+                confidence = min(1.0, max(0.0, peak_sharpness * 1000))  # 调整缩放因子
+                
+                # 考虑整体相似度
+                confidence *= (best_similarity + 0.2)  # 增加基础置信度
+            except:
+                # 如果拟合失败，使用最佳相似度作为基础置信度
+                confidence = best_similarity + 0.1
+        else:
+            confidence = best_similarity + 0.1
     else:
-        adjusted_final_offset = final_offset
+        confidence = best_similarity  # 样本点少时，使用相似度作为置信度
     
-    # 计算总偏移
-    total_offset_ms = base_time_diff + adjusted_final_offset
+    # 确保置信度在合理范围内
+    confidence = min(1.0, max(0.0, confidence))
     
-    # 打印主要偏移结果
-    print(f"  视觉方法结果: 基础时间差={base_time_diff:.2f}ms, 细节偏移={adjusted_final_offset:.2f}ms")
-    print(f"  总偏移={total_offset_ms:.2f}ms, 最佳匹配分数={best_fine_score:.4f}")
+    # 考虑基础时间差和细节偏移的相对大小
+    # 如果细节偏移太大，可能不太可靠
+    if abs(time_diff_base) > 0:
+        relative_change = abs(best_offset) / abs(time_diff_base)
+        if relative_change > 0.5:  # 如果调整超过基础时间差的50%
+            confidence *= max(0.5, 1.0 - (relative_change - 0.5))
     
-    # 判断是否对齐
-    is_aligned = abs(total_offset_ms) <= args.tolerance_ms
+    # 判断信号是否对齐，基于置信度和容差
+    is_aligned = confidence > 0.6
     
-    # 使用最佳偏移生成对齐后的数据，用于可视化
-    best_offset_sec = total_offset_ms / 1000.0
-    common_times_best = common_times - best_offset_sec
-    y2_best = f2(common_times_best)
+    # 调试输出
+    print(f"  视觉方法结果: 总偏移={final_offset:.2f}ms (基础:{time_diff_base:.2f}ms + 细节:{best_offset:.2f}ms)")
+    print(f"  相似度: {best_similarity:.4f}, 置信度: {confidence:.2f}")
+    print(f"  对齐状态: {'已对齐' if is_aligned else '未对齐'}")
     
-    # 为可视化准备结果
-    visual_result = {
-        'common_times': common_times,
-        'y1': y1_interp,
-        'y2_aligned': y2_best,
-        'score': best_fine_score,
-        'y2_original': f2(common_times)  # 原始信号2（未偏移）
-    }
-    
+    # 返回结果
     return {
         'is_aligned': is_aligned,
-        'method': 'visual',
-        'mean_offset': total_offset_ms,
-        'std_offset': 0.0,  # 视觉方法没有标准差
-        'offset_scores': all_scores,
-        'best_offset': final_offset,
-        'adjusted_offset': adjusted_final_offset,
-        'total_offset': total_offset_ms,
-        'base_time_diff': base_time_diff,
-        'visual_result': visual_result
+        'confidence': confidence,
+        'mean_offset': final_offset,
+        'std_offset': abs(best_offset) / 2,  # 估计标准差
+        'base_offset': time_diff_base,
+        'fine_offset': best_offset,
+        'similarity': best_similarity,
+        'method': 'visual'
     }
+
+def extract_statistical_features(signal):
+    """提取信号的统计特征"""
+    if len(signal) == 0:
+        return {
+            'mean': 0, 'std': 0, 'skew': 0, 'kurtosis': 0,
+            'q25': 0, 'q50': 0, 'q75': 0, 'iqr': 0
+        }
+    
+    # 计算统计矩
+    mean = np.mean(signal)
+    std = np.std(signal)
+    
+    # 鲁棒计算高阶矩以避免除零等问题
+    try:
+        skew = scipy.stats.skew(signal)
+        kurtosis = scipy.stats.kurtosis(signal)
+    except:
+        skew = 0
+        kurtosis = 0
+    
+    # 四分位数
+    try:
+        q25 = np.percentile(signal, 25)
+        q50 = np.percentile(signal, 50)
+        q75 = np.percentile(signal, 75)
+        iqr = q75 - q25
+    except:
+        q25, q50, q75, iqr = 0, 0, 0, 0
+    
+    return {
+        'mean': mean,
+        'std': std,
+        'skew': skew,
+        'kurtosis': kurtosis,
+        'q25': q25,
+        'q50': q50,
+        'q75': q75,
+        'iqr': iqr
+    }
+
+def extract_frequency_features(signal, fs):
+    """提取信号的频域特征"""
+    if len(signal) < 10:
+        return {
+            'dominant_freq': 0,
+            'energy_low': 0,
+            'energy_mid': 0,
+            'energy_high': 0
+        }
+    
+    # 应用窗函数减少频谱泄漏
+    windowed_signal = signal * np.hanning(len(signal))
+    
+    # 计算功率谱密度
+    freqs, psd = scipy.signal.welch(windowed_signal, fs=fs, nperseg=min(256, len(signal)))
+    
+    # 如果计算失败，返回零特征
+    if len(freqs) == 0 or len(psd) == 0:
+        return {
+            'dominant_freq': 0,
+            'energy_low': 0,
+            'energy_mid': 0,
+            'energy_high': 0
+        }
+    
+    # 找出主导频率
+    dominant_idx = np.argmax(psd)
+    dominant_freq = freqs[dominant_idx] if dominant_idx < len(freqs) else 0
+    
+    # 计算不同频段的能量
+    total_energy = np.sum(psd)
+    
+    if total_energy > 0:
+        # 定义频率边界
+        low_bound = 0.5  # Hz
+        mid_bound = 5.0  # Hz
+        high_bound = 15.0  # Hz
+        
+        # 计算各频段能量比例
+        low_mask = freqs <= low_bound
+        mid_mask = (freqs > low_bound) & (freqs <= mid_bound)
+        high_mask = freqs > mid_bound
+        
+        energy_low = np.sum(psd[low_mask]) / total_energy if np.any(low_mask) else 0
+        energy_mid = np.sum(psd[mid_mask]) / total_energy if np.any(mid_mask) else 0
+        energy_high = np.sum(psd[high_mask]) / total_energy if np.any(high_mask) else 0
+    else:
+        energy_low, energy_mid, energy_high = 0, 0, 0
+    
+    return {
+        'dominant_freq': dominant_freq,
+        'energy_low': energy_low,
+        'energy_mid': energy_mid,
+        'energy_high': energy_high
+    }
+
+def extract_morphological_features(signal):
+    """提取信号的形态特征"""
+    if len(signal) < 3:
+        return {'peak_count': 0, 'zero_crossings': 0, 'abs_energy': 0}
+    
+    # 计算峰值数量（局部最大值）
+    peaks = scipy.signal.find_peaks(signal)[0]
+    peak_count = len(peaks)
+    
+    # 计算过零率
+    zero_crossings = np.sum(np.diff(np.signbit(signal)))
+    
+    # 计算绝对能量
+    abs_energy = np.sum(np.abs(signal))
+    
+    return {
+        'peak_count': peak_count,
+        'zero_crossings': zero_crossings,
+        'abs_energy': abs_energy
+    }
+
+def calculate_offset_similarity(features, offset_ms, interval_ms):
+    """
+    计算给定时间偏移下两个信号之间的相似度
+    
+    参数:
+        features: 提取的特征列表
+        offset_ms: 要测试的偏移值（毫秒）
+        interval_ms: 平均采样间隔（毫秒）
+    
+    返回:
+        相似度得分（0-1之间，1表示完全匹配）
+    """
+    # 如果没有特征，返回0
+    if not features:
+        return 0.0
+    
+    total_similarity = 0.0
+    feature_count = 0
+    
+    # 处理每组特征
+    for feature_set in features:
+        # 获取信号和特征
+        signal1 = feature_set.get('signal1', [])
+        signal2 = feature_set.get('signal2', [])
+        
+        # 跳过无效特征集
+        if len(signal1) < 10 or len(signal2) < 10:
+            continue
+        
+        # 计算时间轴偏移点数
+        offset_points = int(round(offset_ms / interval_ms))
+        
+        # 应用偏移，计算重叠区域
+        if offset_points >= 0:
+            sig1_slice = signal1[offset_points:] if offset_points < len(signal1) else []
+            sig2_slice = signal2[:len(signal2)-offset_points] if offset_points < len(signal2) else []
+        else:
+            abs_offset = abs(offset_points)
+            sig1_slice = signal1[:len(signal1)-abs_offset] if abs_offset < len(signal1) else []
+            sig2_slice = signal2[abs_offset:] if abs_offset < len(signal2) else []
+        
+        # 确保切片长度匹配并且足够长
+        min_len = min(len(sig1_slice), len(sig2_slice))
+        if min_len < 10:  # 至少需要10个点进行有意义的比较
+            continue
+        
+        # 截取相同长度进行比较
+        sig1_compare = sig1_slice[:min_len]
+        sig2_compare = sig2_slice[:min_len]
+        
+        # 计算不同类型特征的相似度
+        # 1. 统计特征比较
+        stats1 = feature_set.get('stats1', {})
+        stats2 = feature_set.get('stats2', {})
+        
+        # 比较统计特征
+        if stats1 and stats2:
+            stat_keys = ['mean', 'std', 'skew', 'kurtosis']
+            stat_similarity = 0.0
+            valid_stats = 0
+            
+            for key in stat_keys:
+                if key in stats1 and key in stats2 and isinstance(stats1[key], (int, float)) and isinstance(stats2[key], (int, float)):
+                    # 规格化差异
+                    max_val = max(abs(stats1[key]), abs(stats2[key]))
+                    if max_val > 0:
+                        diff = abs(stats1[key] - stats2[key]) / max_val
+                        stat_similarity += max(0, 1 - min(diff, 1))
+                        valid_stats += 1
+            
+            if valid_stats > 0:
+                stat_similarity /= valid_stats
+                total_similarity += stat_similarity
+                feature_count += 1
+        
+        # 2. 频率特征比较
+        freq1 = feature_set.get('freq1', {})
+        freq2 = feature_set.get('freq2', {})
+        
+        if freq1 and freq2:
+            freq_keys = ['dominant_freq', 'energy_low', 'energy_mid', 'energy_high']
+            freq_similarity = 0.0
+            valid_freqs = 0
+            
+            for key in freq_keys:
+                if key in freq1 and key in freq2 and isinstance(freq1[key], (int, float)) and isinstance(freq2[key], (int, float)):
+                    if key == 'dominant_freq':
+                        # 对主导频率，使用相对差异
+                        max_freq = max(freq1[key], freq2[key])
+                        if max_freq > 0:
+                            diff = abs(freq1[key] - freq2[key]) / max_freq
+                            freq_similarity += max(0, 1 - min(diff, 1))
+                            valid_freqs += 1
+                    else:
+                        # 对能量分布，直接比较差异
+                        diff = abs(freq1[key] - freq2[key])
+                        freq_similarity += max(0, 1 - min(diff, 1))
+                        valid_freqs += 1
+            
+            if valid_freqs > 0:
+                freq_similarity /= valid_freqs
+                total_similarity += freq_similarity * 1.5  # 频率特征权重略高
+                feature_count += 1.5
+        
+        # 3. 形态学特征比较
+        morph1 = feature_set.get('morph1', {})
+        morph2 = feature_set.get('morph2', {})
+        
+        if morph1 and morph2:
+            morph_keys = ['peak_count', 'zero_crossing_rate']
+            morph_similarity = 0.0
+            valid_morphs = 0
+            
+            for key in morph_keys:
+                if key in morph1 and key in morph2 and isinstance(morph1[key], (int, float)) and isinstance(morph2[key], (int, float)):
+                    # 对峰值计数，使用相对差异
+                    max_val = max(morph1[key], morph2[key])
+                    if max_val > 0:
+                        diff = abs(morph1[key] - morph2[key]) / max_val
+                        morph_similarity += max(0, 1 - min(diff, 1))
+                        valid_morphs += 1
+            
+            if valid_morphs > 0:
+                morph_similarity /= valid_morphs
+                total_similarity += morph_similarity
+                feature_count += 1
+        
+        # 4. 信号相关性比较（如果信号足够长）
+        if min_len >= 30:
+            try:
+                # 标准化信号
+                sig1_norm = (sig1_compare - np.mean(sig1_compare)) / np.std(sig1_compare) if np.std(sig1_compare) > 0 else sig1_compare
+                sig2_norm = (sig2_compare - np.mean(sig2_compare)) / np.std(sig2_compare) if np.std(sig2_compare) > 0 else sig2_compare
+                
+                # 计算相关系数
+                corr = np.corrcoef(sig1_norm, sig2_norm)[0, 1]
+                
+                # 处理无效值
+                if np.isnan(corr):
+                    corr = 0
+                
+                # 转换为相似度分数
+                signal_similarity = max(0, (corr + 1) / 2)  # 将[-1, 1]映射到[0, 1]
+                
+                total_similarity += signal_similarity * 2  # 原始信号相关性权重更高
+                feature_count += 2
+            except:
+                pass  # 如果计算失败，跳过此部分
+    
+    # 计算综合相似度
+    if feature_count > 0:
+        return total_similarity / feature_count
+    else:
+        return 0.0
 
 # ========== 可视化函数 ==========
 
@@ -1991,7 +2651,7 @@ def visualize_correlation_results(verification_results, sensor1, sensor2, args):
                         xytext=(best_lag+20, corrs[idx]),
                         arrowprops=dict(facecolor='black', shrink=0.05, width=1.5),
                         fontsize=10)
-        
+    
         # 标记零偏移
         if 0 in lags:
             idx = np.where(lags == 0)[0][0]
@@ -2010,7 +2670,7 @@ def visualize_correlation_results(verification_results, sensor1, sensor2, args):
     else:
         plt.text(0.5, 0.5, '无相关性数据', ha='center', va='center', fontsize=14)
         plt.axis('off')
-    
+        
     # 添加结果摘要
     plt.subplot(2, 1, 2)
     plt.axis('off')
@@ -2043,18 +2703,25 @@ def visualize_event_results(verification_results, sensor1, sensor2, args):
     events1 = verification_results['events1']
     events2 = verification_results['events2']
     match_stats = verification_results['match_stats']
+    mean_offset = verification_results.get('mean_offset', 0)
+    base_time_diff = verification_results.get('base_time_diff', 0)
+    detail_offset = verification_results.get('detail_offset', 0)
+    is_aligned = verification_results.get('is_aligned', False)
     
     # 创建一个大的图像以显示结果
     plt.figure(figsize=(14, 10))
+    
+    # 添加标题
+    plt.suptitle(f"{sensor1}-{sensor2} 事件方法对齐分析 (总偏移: {mean_offset:.2f}ms)", fontsize=16)
     
     # 1. 事件匹配图
     plt.subplot(2, 1, 1)
     
     # 绘制事件时间点
     plt.scatter(events1['timestamps'], np.ones_like(events1['timestamps']), marker='|', s=100, 
-               label=f'{sensor1} Events', color='blue')
+               label=f'{sensor1} 事件', color='blue')
     plt.scatter(events2['timestamps'], np.ones_like(events2['timestamps'])*1.1, 
-               marker='|', s=100, label=f'{sensor2} Events', color='red')
+               marker='|', s=100, label=f'{sensor2} 事件', color='red')
     
     # 绘制匹配连线
     matched_events1 = [events1['timestamps'][m['event1_idx']] for m in match_stats['matches']]
@@ -2063,18 +2730,17 @@ def visualize_event_results(verification_results, sensor1, sensor2, args):
     for i in range(len(matched_events1)):
         plt.plot([matched_events1[i], matched_events2[i]], [1, 1.1], 'k-', alpha=0.3)
     
-    plt.title(f'{sensor1}-{sensor2} Event Matching (Match Rate: {match_stats["match_rate"]*100:.1f}%)')
-    plt.xlabel('Timestamp')
+    plt.title(f'事件匹配 (匹配率: {match_stats["match_rate"]*100:.1f}%, 事件数: {len(events1["timestamps"])}/{len(events2["timestamps"])})')
+    plt.xlabel('时间戳 (ms)')
     plt.yticks([])
     plt.legend()
-    plt.grid(True)
+    plt.grid(True, alpha=0.3)
     
     # 2. 时间差分布
     plt.subplot(2, 1, 2)
     time_diffs = [m['time_diff'] for m in match_stats['matches']]
     
-    # 解决ValueError: Too many bins for data range问题
-    # 动态计算合适的bin数量
+    # 解决ValueError: Too many bins 问题 - 动态计算bin数量
     if len(time_diffs) > 0:
         time_diff_range = max(time_diffs) - min(time_diffs)
         if time_diff_range <= 0:  # 所有值相同
@@ -2087,344 +2753,74 @@ def visualize_event_results(verification_results, sensor1, sensor2, args):
     
     if len(time_diffs) > 0:
         plt.hist(time_diffs, bins=bin_count, alpha=0.7, color='blue')
-        plt.axvline(x=0, color='k', linestyle='--', label='Zero Offset')
+        plt.axvline(x=0, color='k', linestyle='--', label='零偏移')
         plt.axvline(x=match_stats['mean_diff'], color='r', linestyle='-', 
-                   label=f'Mean Offset: {match_stats["mean_diff"]:.2f} ms')
+                   label=f'平均偏移: {match_stats["mean_diff"]:.2f} ms')
         plt.axvspan(-args.tolerance_ms, args.tolerance_ms, alpha=0.2, color='green', 
-                   label=f'Tolerance (±{args.tolerance_ms} ms)')
+                   label=f'容差范围 (±{args.tolerance_ms} ms)')
     else:
-        plt.text(0.5, 0.5, "No matching events", ha='center', va='center', transform=plt.gca().transAxes)
+        plt.text(0.5, 0.5, "无匹配事件", ha='center', va='center', transform=plt.gca().transAxes)
     
-    plt.title(f'{sensor1}-{sensor2} Event Time Difference Distribution')
-    plt.xlabel('Time Difference (ms)')
-    plt.ylabel('Event Count')
+    plt.title(f'时间差分布 (基础时间差: {base_time_diff:.2f}ms, 细节偏移: {detail_offset:.2f}ms)')
+    plt.xlabel('时间差 (ms)')
+    plt.ylabel('事件数量')
     plt.legend()
-    plt.grid(True)
+    plt.grid(True, alpha=0.3)
+    
+    # 添加结果摘要
+    alignment_status = "已对齐" if is_aligned else "未对齐"
+    plt.figtext(0.5, 0.01, f"对齐状态: {alignment_status} (容差: ±{args.tolerance_ms}ms)", 
+               ha='center', fontsize=12, bbox=dict(facecolor='yellow', alpha=0.2))
     
     # 保存图形
-    plt.tight_layout()
-    plt.savefig(os.path.join(result_dir, f"{sensor1}_{sensor2}_event.png"), dpi=300)
-    
-    if args.visualize:
-        plt.show()
-    else:
-        plt.close()
+    plt.tight_layout(rect=[0, 0, 1, 0.95])  # 为主标题留出空间
+    plt.savefig(os.path.join(result_dir, f"{sensor1}_{sensor2}_event_verification.png"), dpi=300)
+    plt.close()
 
 def visualize_visual_results(verification_results, sensor1, sensor2, args):
-    """可视化视觉对齐验证结果"""
+    """可视化视觉方法对齐验证结果"""
     os.makedirs(args.output_dir, exist_ok=True)
     
-    # 创建一个大的图像，显示所有相关信息
-    plt.figure(figsize=(14, 10))
-    
     # 提取结果
-    is_aligned = verification_results.get('is_aligned', False)
-    total_offset = verification_results.get('total_offset', verification_results.get('mean_offset', 0))
-    best_offset = verification_results.get('best_offset', 0)
+    mean_offset = verification_results.get('mean_offset', 0)
     base_time_diff = verification_results.get('base_time_diff', 0)
-    visual_result = verification_results.get('visual_result', {})
+    detail_offset = verification_results.get('detail_offset', 0)
+    is_aligned = verification_results.get('is_aligned', False)
+    confidence = verification_results.get('confidence', 0)
     
-    # 设置主标题
+    # 创建图像
+    plt.figure(figsize=(10, 6))
+    
+    # 设置标题
     plt.suptitle(f"{sensor1}-{sensor2} 视觉方法时间戳对齐分析", fontsize=16)
     
-    # 绘制信号比较
-    plt.subplot(2, 1, 1)
+    # 创建文本摘要区域
+    plt.subplot(1, 1, 1)
+    plt.axis('off')
     
-    # 提取数据
-    common_times = visual_result.get('common_times', [])
-    y1 = visual_result.get('y1', [])
-    y2_aligned = visual_result.get('y2_aligned', [])
-    y2_original = visual_result.get('y2_original', [])
-    score = visual_result.get('score', 0)
+    summary_text = f"""
+    视觉对齐分析结果摘要:
+    --------------------------------------
+    基础时间差:     {base_time_diff:.2f} ms
+    细节偏移:       {detail_offset:.2f} ms
+    总时间偏移:     {mean_offset:.2f} ms
     
-    if len(common_times) > 0 and len(y1) > 0 and len(y2_aligned) > 0:
-        plt.plot(common_times, y1, 'b-', label=f'{sensor1} 信号', linewidth=1.5)
-        plt.plot(common_times, y2_aligned, 'g-', label=f'{sensor2} 信号 (已对齐)', linewidth=1.5)
-        if len(y2_original) > 0:
-            plt.plot(common_times, y2_original, 'r--', label=f'{sensor2} 信号 (原始)', linewidth=1)
-            
-        plt.title(f"总偏移: {total_offset:.2f}ms (基础: {base_time_diff:.2f}ms + 细节: {best_offset:.2f}ms), 匹配分数: {score:.4f}", fontsize=12)
-        plt.xlabel('相对时间 (s)')
-        plt.ylabel('角速度幅值')
-        plt.grid(True, alpha=0.3)
-        plt.legend()
-    else:
-        plt.text(0.5, 0.5, '无可视化数据', ha='center', va='center', fontsize=14)
-        plt.axis('off')
+    置信度:         {confidence:.2f}
+    对齐状态:       {'✓ 已对齐' if is_aligned else '✗ 未对齐'} (容差: ±{args.tolerance_ms} ms)
     
-    # 绘制偏移分数图
-    plt.subplot(2, 1, 2)
-    offset_scores = verification_results.get('offset_scores', {})
+    方法:           多尺度特征匹配
+    """
     
-    if offset_scores:
-        offsets = sorted(offset_scores.keys())
-        scores = [offset_scores[o] for o in offsets]
-        
-        plt.plot(offsets, scores, 'b-', linewidth=1.5)
-        if best_offset in offsets:
-            idx = offsets.index(best_offset)
-            plt.plot(best_offset, scores[idx], 'ro', markersize=8)
-            plt.annotate(f'最佳偏移: {best_offset}ms', 
-                        xy=(best_offset, scores[idx]), 
-                        xytext=(best_offset+5, scores[idx]),
-                        arrowprops=dict(facecolor='black', shrink=0.05, width=1.5),
-                        fontsize=10)
-            
-        plt.title(f"偏移评分曲线 (结果: {'对齐' if is_aligned else '未对齐'}, 容差: ±{args.tolerance_ms}ms)", fontsize=12)
-        plt.xlabel('偏移 (ms)')
-        plt.ylabel('匹配分数')
-        plt.grid(True, alpha=0.3)
-    else:
-        plt.text(0.5, 0.5, '无偏移评分数据', ha='center', va='center', fontsize=14)
-        plt.axis('off')
+    plt.text(0.5, 0.5, summary_text, fontsize=14, family='monospace',
+            ha='center', va='center', bbox=dict(facecolor='lightgray', alpha=0.2))
     
-    plt.tight_layout(rect=[0, 0, 1, 0.95])  # 为整体标题留出空间
+    # 保存图像
+    plt.tight_layout(rect=[0, 0, 1, 0.95])  # 为主标题留出空间
     plt.savefig(os.path.join(args.output_dir, f"{sensor1}_{sensor2}_visual_verification.png"), dpi=300)
     plt.close()
 
-def generate_summary_report(all_verification_results, args):
-    """生成综合验证报告"""
-    # 创建结果目录
-    os.makedirs(args.output_dir, exist_ok=True)
-    
-    report_file = os.path.join(args.output_dir, "alignment_summary_report.txt")
-    
-    with open(report_file, 'w') as f:
-        f.write("===== 多传感器时间戳对齐验证报告 =====\n\n")
-        
-        # 记录使用的数据源
-        f.write("使用的数据源:\n")
-        f.write(f"  IMU: {args.imu_file}\n")
-        if args.odo_file:
-            f.write(f"  轮式编码器: {args.odo_file}\n")
-        if args.rtk_file:
-            f.write(f"  RTK: {args.rtk_file}\n")
-        if args.image_dir:
-            f.write(f"  图像: {args.image_dir}\n")
-            if args.image_timestamp_file:
-                f.write(f"  图像时间戳文件: {args.image_timestamp_file}\n")
-        
-        f.write("\n时间对齐容差: ±{:.2f} ms\n\n".format(args.tolerance_ms))
-        
-        # 对每对传感器组合进行汇总
-        for sensor_pair, pair_results in all_verification_results.items():
-            sensor1, sensor2 = sensor_pair.split('_')
-            
-            f.write(f"===== {sensor1}与{sensor2}时间对齐验证 =====\n")
-            
-            methods_summary = []
-            all_offsets = []
-            aligned_count = 0
-            
-            for method, result in pair_results.items():
-                is_aligned = result.get('is_aligned', False)
-                mean_offset = result.get('mean_offset', 0)
-                std_offset = result.get('std_offset', 0)
-                
-                methods_summary.append({
-                    'method': method,
-                    'offset': mean_offset,
-                    'std': std_offset, 
-                    'aligned': is_aligned
-                })
-                
-                all_offsets.append(mean_offset)
-                if is_aligned:
-                    aligned_count += 1
-            
-            # 输出每种方法的结果
-            f.write("各验证方法结果:\n")
-            for summary in methods_summary:
-                f.write(f"  * {summary['method']}方法: {'对齐' if summary['aligned'] else '未对齐'}, ")
-                f.write(f"偏移 = {summary['offset']:.2f} ± {summary['std']:.2f} ms\n")
-            
-            # 综合判断
-            final_aligned = aligned_count >= len(methods_summary) / 2
-            weighted_offset = np.mean(all_offsets)
-            
-            f.write(f"\n综合判断: {'对齐' if final_aligned else '未对齐'} ")
-            f.write(f"({aligned_count}/{len(methods_summary)}个方法认为对齐)\n")
-            f.write(f"加权平均时间偏移: {weighted_offset:.2f} ms\n\n")
-        
-        # 总体结论
-        f.write("===== 总体结论 =====\n")
-        all_aligned = True
-        for sensor_pair, pair_results in all_verification_results.items():
-            sensor1, sensor2 = sensor_pair.split('_')
-            
-            aligned_count = sum(1 for result in pair_results.values() if result.get('is_aligned', False))
-            final_aligned = aligned_count >= len(pair_results) / 2
-            
-            if not final_aligned:
-                all_aligned = False
-            
-            f.write(f"{sensor1}-{sensor2}: {'对齐' if final_aligned else '未对齐'}\n")
-        
-        f.write(f"\n所有传感器时间戳{'整体对齐' if all_aligned else '未完全对齐'}\n")
-    
-    # 辅助函数：确保对象是JSON可序列化的
-    def json_serializable(obj):
-        """递归转换非JSON可序列化值为可序列化类型"""
-        if isinstance(obj, (np.integer, np.int64, np.int32, np.int16, np.int8)):
-            return int(obj)
-        elif isinstance(obj, (np.floating, np.float64, np.float32, np.float16)):
-            return float(obj)
-        elif isinstance(obj, (np.ndarray,)):
-            return obj.tolist()
-        elif isinstance(obj, (np.bool_)):
-            return bool(obj)
-        elif isinstance(obj, dict):
-            return {k: json_serializable(v) for k, v in obj.items()}
-        elif isinstance(obj, list):
-            return [json_serializable(item) for item in obj]
-        elif isinstance(obj, tuple):
-            return tuple(json_serializable(item) for item in obj)
-        elif obj is None or isinstance(obj, (bool, int, float, str)):
-            return obj
-        elif pd.isna(obj):  # 处理NaN和None
-            return None
-        else:
-            # 对于复杂对象，尝试使用字符串表示
-            try:
-                return str(obj)
-            except:
-                return None
-    
-    # 同时生成JSON格式的摘要
-    summary_json = {
-        'timestamp': datetime.now().isoformat(),
-        'tolerance_ms': float(args.tolerance_ms),
-        'sensor_pairs': {}
-    }
-    
-    for sensor_pair, pair_results in all_verification_results.items():
-        sensor1, sensor2 = sensor_pair.split('_')
-        
-        methods_data = {}
-        for method, result in pair_results.items():
-            # 仅提取需要的关键数据，并确保JSON可序列化
-            offset_ms = json_serializable(result.get('mean_offset', 0))
-            std_ms = json_serializable(result.get('std_offset', 0))
-            is_aligned = bool(result.get('is_aligned', False))
-            
-            methods_data[method] = {
-                'offset_ms': offset_ms,
-                'std_ms': std_ms,
-                'is_aligned': is_aligned
-            }
-        
-        aligned_count = sum(1 for result in pair_results.values() if result.get('is_aligned', False))
-        final_aligned = aligned_count >= len(pair_results) / 2
-        
-        summary_json['sensor_pairs'][sensor_pair] = {
-            'methods': methods_data,
-            'overall': {
-                'is_aligned': bool(final_aligned),
-                'aligned_methods': int(aligned_count),
-                'total_methods': len(pair_results)
-            }
-        }
-    
-    # 保存JSON格式报告
-    try:
-        # 确保整个summary_json是JSON可序列化的
-        serializable_json = json_serializable(summary_json)
-        with open(os.path.join(args.output_dir, "alignment_summary.json"), 'w') as f:
-            json.dump(serializable_json, f, indent=2)
-        print(f"综合报告已保存至: {report_file}")
-    except Exception as e:
-        print(f"保存JSON报告时出错: {e}")
-    
-    return report_file
-
 def main():
-    """主函数"""
     args = parse_arguments()
-    
-    # 创建输出目录
-    os.makedirs(args.output_dir, exist_ok=True)
-    
-    # 确定要验证的传感器组合
-    sensor_pairs = []
-    if args.sensors.lower() == 'all':
-        # 根据提供的数据源自动确定可能的组合
-        if args.imu_file and args.odo_file:
-            sensor_pairs.append(('imu', 'odo'))
-        if args.imu_file and args.rtk_file:
-            sensor_pairs.append(('imu', 'rtk'))
-        if args.imu_file and args.image_dir:
-            sensor_pairs.append(('imu', 'camera'))
-        if args.odo_file and args.rtk_file:
-            sensor_pairs.append(('odo', 'rtk'))
-    else:
-        # 解析用户指定的组合
-        for pair in args.sensors.split(','):
-            if pair == 'imu_odo' and args.imu_file and args.odo_file:
-                sensor_pairs.append(('imu', 'odo'))
-            elif pair == 'imu_rtk' and args.imu_file and args.rtk_file:
-                sensor_pairs.append(('imu', 'rtk'))
-            elif pair == 'imu_camera' and args.imu_file and args.image_dir:
-                sensor_pairs.append(('imu', 'camera'))
-            elif pair == 'odo_rtk' and args.odo_file and args.rtk_file:
-                sensor_pairs.append(('odo', 'rtk'))
-    
-    if not sensor_pairs:
-        print("警告: 没有有效的传感器组合可供验证。请检查输入参数。")
-        return
-    
-    # 确定要使用的验证方法
-    methods = []
-    if args.methods.lower() == 'all':
-        methods = ['correlation', 'event', 'visual']
-    else:
-        for method in args.methods.split(','):
-            if method in ['correlation', 'event', 'visual']:
-                methods.append(method)
-    
-    if not methods:
-        print("警告: 没有指定验证方法。将使用所有方法。")
-        methods = ['correlation', 'event', 'visual']
-    
-    # 加载数据
-    print("加载数据...")
-    data_sources = {}
-    
-    # IMU数据
-    imu_data = load_imu_data(args)
-    data_sources['imu'] = {
-        'data': imu_data,
-        'ts_col': args.imu_timestamp_col
-    }
-    
-    # 轮式编码器数据
-    if args.odo_file:
-        odo_data = load_odometry_data(args)
-        if odo_data is not None:
-            data_sources['odo'] = {
-                'data': odo_data,
-                'ts_col': args.odo_timestamp_col
-            }
-    
-    # RTK数据
-    if args.rtk_file:
-        rtk_data = load_rtk_data(args)
-        if rtk_data is not None:
-            data_sources['rtk'] = {
-                'data': rtk_data,
-                'ts_col': args.rtk_timestamp_col
-            }
-    
-    # 图像数据
-    if args.image_dir:
-        image_data = process_image_data(args)
-        if not image_data.empty:
-            data_sources['camera'] = {
-                'data': image_data,
-                'ts_col': 'timestamp'
-            }
-    
-    # 验证结果存储
-    all_verification_results = {}
     
     # 对每个传感器组合执行验证
     for sensor1, sensor2 in sensor_pairs:

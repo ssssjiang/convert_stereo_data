@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -338,7 +339,20 @@ def run_verification_with_args(imu_file, odo_file, known_offset_ms, output_dir='
         
         # 对每种方法执行验证
         from multisensor_alignment_verify import correlation_verification, event_verification, visual_verification
-        from multisensor_alignment_verify import visualize_correlation_results, visualize_event_results, visualize_visual_results
+        
+        # 尝试导入可视化函数，但如果失败则使用占位函数
+        try:
+            from multisensor_alignment_verify import visualize_correlation_results, visualize_event_results, visualize_visual_results
+        except ImportError:
+            # 定义占位可视化函数
+            def visualize_correlation_results(result, sensor1, sensor2, args):
+                print(f"  警告: 相关性结果可视化功能不可用")
+            
+            def visualize_event_results(result, sensor1, sensor2, args):
+                print(f"  警告: 事件结果可视化功能不可用")
+                
+            def visualize_visual_results(result, sensor1, sensor2, args):
+                print(f"  警告: 视觉结果可视化功能不可用")
         
         for method in methods:
             print(f"  使用{method}方法验证...")
@@ -403,7 +417,7 @@ def run_verification_with_args(imu_file, odo_file, known_offset_ms, output_dir='
 # 主函数
 def main():
     # 1. 生成多个不同偏移值的合成数据
-    offsets_to_test = [0, 15, 30, 50, 100, 150, 200]
+    offsets_to_test = [0, 15, 30, 50, 100, 150, 200, 300, 500]  # 增加更大的偏移值测试
     results = []
     
     for known_offset_ms in offsets_to_test:
@@ -431,7 +445,9 @@ def main():
             for method, result in verification_results['imu_odo'].items():
                 methods_results[method] = {
                     'offset_ms': result.get('mean_offset', 0),
-                    'is_aligned': result.get('is_aligned', False)
+                    'is_aligned': result.get('is_aligned', False),
+                    'confidence': result.get('confidence', 0),
+                    'std_offset': result.get('std_offset', 0)
                 }
             
             results.append({
@@ -461,26 +477,85 @@ def main():
             event_err = abs(event - known)
             visual_err = abs(visual - known)
             
-            print(f"{known:5d} ms | {corr:6.1f} ms (误差:{corr_err:5.1f}) | {event:6.1f} ms (误差:{event_err:5.1f}) | {visual:6.1f} ms (误差:{visual_err:5.1f})")
+            # 添加置信度和标准差信息
+            corr_std = r['methods'].get('correlation', {}).get('std_offset', 0)
+            event_std = r['methods'].get('event', {}).get('std_offset', 0)
+            visual_conf = r['methods'].get('visual', {}).get('confidence', 0)
+            
+            print(f"{known:5d} ms | {corr:6.1f} ms (误差:{corr_err:5.1f}, 标准差:{corr_std:4.1f}) | "
+                  f"{event:6.1f} ms (误差:{event_err:5.1f}, 标准差:{event_std:4.1f}) | "
+                  f"{visual:6.1f} ms (误差:{visual_err:5.1f}, 置信度:{visual_conf:.2f})")
         
         # 计算方法有效性统计
-        corr_success = sum(1 for r in results if abs(r['methods'].get('correlation', {}).get('offset_ms', 0) - r['known_offset_ms']) <= 50)
-        event_success = sum(1 for r in results if abs(r['methods'].get('event', {}).get('offset_ms', 0) - r['known_offset_ms']) <= 50)
-        visual_success = sum(1 for r in results if abs(r['methods'].get('visual', {}).get('offset_ms', 0) - r['known_offset_ms']) <= 50)
+        # 使用更严格的评估标准
+        corr_success = sum(1 for r in results if abs(r['methods'].get('correlation', {}).get('offset_ms', 0) - r['known_offset_ms']) <= 30)
+        event_success = sum(1 for r in results if abs(r['methods'].get('event', {}).get('offset_ms', 0) - r['known_offset_ms']) <= 30)
+        visual_success = sum(1 for r in results if abs(r['methods'].get('visual', {}).get('offset_ms', 0) - r['known_offset_ms']) <= 30)
+        
+        # 计算平均误差
+        corr_errors = [abs(r['methods'].get('correlation', {}).get('offset_ms', 0) - r['known_offset_ms']) for r in results]
+        event_errors = [abs(r['methods'].get('event', {}).get('offset_ms', 0) - r['known_offset_ms']) for r in results]
+        visual_errors = [abs(r['methods'].get('visual', {}).get('offset_ms', 0) - r['known_offset_ms']) for r in results]
+        
+        avg_corr_error = sum(corr_errors) / len(corr_errors) if corr_errors else float('inf')
+        avg_event_error = sum(event_errors) / len(event_errors) if event_errors else float('inf')
+        avg_visual_error = sum(visual_errors) / len(visual_errors) if visual_errors else float('inf')
         
         total_tests = len(results)
         
         # 总结发现
         print("\n===== 总结发现 =====")
-        print(f"1. 相关性方法性能: 成功率 {corr_success}/{total_tests} ({corr_success/total_tests*100:.1f}%)")
-        print(f"2. 事件方法性能: 成功率 {event_success}/{total_tests} ({event_success/total_tests*100:.1f}%)")
-        print(f"3. 视觉方法性能: 成功率 {visual_success}/{total_tests} ({visual_success/total_tests*100:.1f}%)")
+        print(f"1. 相关性方法性能: 成功率 {corr_success}/{total_tests} ({corr_success/total_tests*100:.1f}%), 平均误差: {avg_corr_error:.1f}ms")
+        print(f"2. 事件方法性能: 成功率 {event_success}/{total_tests} ({event_success/total_tests*100:.1f}%), 平均误差: {avg_event_error:.1f}ms")
+        print(f"3. 视觉方法性能: 成功率 {visual_success}/{total_tests} ({visual_success/total_tests*100:.1f}%), 平均误差: {avg_visual_error:.1f}ms")
         
         # 建议最佳方法
-        best_method = "视觉方法" if visual_success >= max(corr_success, event_success) else \
-                     "事件方法" if event_success >= corr_success else "相关性方法"
+        methods_performance = [
+            ("相关性方法", corr_success/total_tests, avg_corr_error),
+            ("事件方法", event_success/total_tests, avg_event_error),
+            ("视觉方法", visual_success/total_tests, avg_visual_error)
+        ]
         
+        # 首先按成功率排序，然后按平均误差排序
+        methods_performance.sort(key=lambda x: (-x[1], x[2]))
+        
+        best_method = methods_performance[0][0]
         print(f"4. 建议: 在当前测试条件下，{best_method}表现最佳，应优先采用")
+        
+        # 分析不同偏移范围的性能
+        small_offsets = [r for r in results if r['known_offset_ms'] <= 50]
+        medium_offsets = [r for r in results if 50 < r['known_offset_ms'] <= 200]
+        large_offsets = [r for r in results if r['known_offset_ms'] > 200]
+        
+        if small_offsets:
+            print("\n小偏移范围 (0-50ms) 性能分析:")
+            corr_small = sum(1 for r in small_offsets if abs(r['methods'].get('correlation', {}).get('offset_ms', 0) - r['known_offset_ms']) <= 30)
+            event_small = sum(1 for r in small_offsets if abs(r['methods'].get('event', {}).get('offset_ms', 0) - r['known_offset_ms']) <= 30)
+            visual_small = sum(1 for r in small_offsets if abs(r['methods'].get('visual', {}).get('offset_ms', 0) - r['known_offset_ms']) <= 30)
+            
+            print(f"  相关性方法: {corr_small}/{len(small_offsets)} ({corr_small/len(small_offsets)*100:.1f}%)")
+            print(f"  事件方法: {event_small}/{len(small_offsets)} ({event_small/len(small_offsets)*100:.1f}%)")
+            print(f"  视觉方法: {visual_small}/{len(small_offsets)} ({visual_small/len(small_offsets)*100:.1f}%)")
+        
+        if medium_offsets:
+            print("\n中偏移范围 (51-200ms) 性能分析:")
+            corr_medium = sum(1 for r in medium_offsets if abs(r['methods'].get('correlation', {}).get('offset_ms', 0) - r['known_offset_ms']) <= 30)
+            event_medium = sum(1 for r in medium_offsets if abs(r['methods'].get('event', {}).get('offset_ms', 0) - r['known_offset_ms']) <= 30)
+            visual_medium = sum(1 for r in medium_offsets if abs(r['methods'].get('visual', {}).get('offset_ms', 0) - r['known_offset_ms']) <= 30)
+            
+            print(f"  相关性方法: {corr_medium}/{len(medium_offsets)} ({corr_medium/len(medium_offsets)*100:.1f}%)")
+            print(f"  事件方法: {event_medium}/{len(medium_offsets)} ({event_medium/len(medium_offsets)*100:.1f}%)")
+            print(f"  视觉方法: {visual_medium}/{len(medium_offsets)} ({visual_medium/len(medium_offsets)*100:.1f}%)")
+        
+        if large_offsets:
+            print("\n大偏移范围 (>200ms) 性能分析:")
+            corr_large = sum(1 for r in large_offsets if abs(r['methods'].get('correlation', {}).get('offset_ms', 0) - r['known_offset_ms']) <= 30)
+            event_large = sum(1 for r in large_offsets if abs(r['methods'].get('event', {}).get('offset_ms', 0) - r['known_offset_ms']) <= 30)
+            visual_large = sum(1 for r in large_offsets if abs(r['methods'].get('visual', {}).get('offset_ms', 0) - r['known_offset_ms']) <= 30)
+            
+            print(f"  相关性方法: {corr_large}/{len(large_offsets)} ({corr_large/len(large_offsets)*100:.1f}%)")
+            print(f"  事件方法: {event_large}/{len(large_offsets)} ({event_large/len(large_offsets)*100:.1f}%)")
+            print(f"  视觉方法: {visual_large}/{len(large_offsets)} ({visual_large/len(large_offsets)*100:.1f}%)")
     else:
         print("没有成功完成的测试，无法生成分析结果")
 
