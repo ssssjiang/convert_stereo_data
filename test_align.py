@@ -240,7 +240,7 @@ def run_verification_with_args(imu_file, odo_file, known_offset_ms, output_dir='
             self.rtk_timestamp_col = "timestamp"
             self.image_pattern = "*.jpg"
             self.window_size = 500
-            self.max_lag = 200
+            self.max_lag = 600  # 增加到600ms，保证能处理所有测试中的最大偏移
     
     args = Args()
     
