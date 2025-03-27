@@ -444,7 +444,7 @@ def extract_rtk_data(log_file_path, rtk_file_path, apply_transform=True):
                         qx, qy, qz, qw = 0.0, 0.0, 0.0, 1.0
                         
                         # Add to our data list (only if valid solution status)
-                        if solution_status >= 1:  # Only use RTK data with valid solution
+                        if solution_status == 4:  # Only use RTK data with valid solution
                             rtk_entry = [
                                 timestamp,  # Timestamp in seconds
                                 pos_x, pos_y, pos_z,  # Position
@@ -562,22 +562,6 @@ def extract_rtk_data(log_file_path, rtk_file_path, apply_transform=True):
                 outfile.write(" ".join(line_parts) + "\n")
         
         log(f"Saved complete RTK data with velocity and standard deviations to: {full_rtk_path}")
-        
-        # Create Maplab compatible format
-        maplab_rtk_path = rtk_file_path.replace('.txt', '_maplab.csv')
-        with open(maplab_rtk_path, "w", newline='') as outfile:
-            csvwriter = csv.writer(outfile)
-            # Maplab format header
-            csvwriter.writerow(["#timestamp [ns]", "p_RS_R_x [m]", "p_RS_R_y [m]", "p_RS_R_z [m]", 
-                               "q_RS_w []", "q_RS_x []", "q_RS_y []", "q_RS_z []"])
-            
-            for data in rtk_data:
-                # Convert time to nanoseconds
-                time_ns = int(data[0] * 1e9)
-                # Maplab uses w,x,y,z quaternion order (different from TUM)
-                csvwriter.writerow([time_ns, data[1], data[2], data[3], data[7], data[4], data[5], data[6]])
-                
-        log(f"Saved Maplab-compatible RTK data to: {maplab_rtk_path}")
         
     except Exception as e:
         log(f"Error writing RTK trajectory file: {e}", level="ERROR")
