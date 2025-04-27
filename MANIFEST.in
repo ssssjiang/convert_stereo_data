@@ -1,0 +1,9 @@
+include README.md
+include LICENSE
+recursive-include slam_data_toolkit/data *
+recursive-include slam_data_toolkit/templates *
+recursive-include slam_data_toolkit/static *
+global-exclude *.py[cod]
+global-exclude __pycache__
+global-exclude *.so
+global-exclude .DS_Store 

@@ -6,65 +6,84 @@ from matplotlib import pyplot as plt
 # --------------------------------------------
 # 1. Define Camera Parameters
 # --------------------------------------------
-
-# Left camera intrinsic parameters
-K1 = np.array([
-    [338.6803142637706, 0.0, 258.0690560860475],
-    [0.0, 338.75365280379106, 320.413904138195],
-    [0.0, 0.0, 1.0]
-])
-
-D1 = np.array([
-    -0.05000465875052348,
-    0.013638910705411799,
-    -0.004489042932918501,
-    -0.0022342707993817414
-])
-
+# cam0:
+#   cam_overlaps: [1]
+#   camera_model: pinhole
+#   distortion_coeffs: [1.9264416073422455, 0.3352504441349091, -8.260465789774901e-05, -0.0002827431714135497, -0.01261188664138058, 2.2847458015574476, 0.9000561794297213, 0.0029298021182558994]
+#   distortion_model: radtan8
+#   intrinsics: [327.97005666465026, 328.10382442993483, 262.04137719767436, 325.5019849239798]
+#   resolution: [544, 640]
+#   rostopic: /image
 # Right camera intrinsic parameters
-K2 = np.array([
-    [338.2025698693698, 0.0, 261.4748043067035],
-    [0.0, 338.3759984276547, 323.62424124741983],
+K1 = np.array([
+    [327.97005666465026, 0.0, 262.04137719767436],
+    [0.0, 328.10382442993483, 325.5019849239798],
     [0.0, 0.0, 1.0]
 ])
 
+# For standard camera model, using 8 coefficients format (k1, k2, p1, p2, k3, k4, k5, k6)
+D1 = np.array([
+    1.9264416073422455,  # k1
+    0.3352504441349091,  # k2
+    -8.260465789774901e-05,  # p1
+    -0.0002827431714135497,  # p2
+    -0.01261188664138058,  # k3
+    2.2847458015574476,  # k4
+    0.9000561794297213,  # k5
+    0.0029298021182558994  # k6
+])
+
+#   camera_model: pinhole
+#   distortion_coeffs: [0.5729525396536029, 0.0020189103859255446, -0.00011978871703312007, 4.151954995754269e-05, -0.0012806796277598455, 0.9254672528339936, 0.10857346697421204, -0.006363662121772228]
+#   distortion_model: radtan8
+#   intrinsics: [327.57536130200486, 327.66355688970094, 266.1246896917541, 326.05116417420976]
+#   resolution: [544, 640]
+#   rostopic: /image1
+K2 = np.array([
+    [327.57536130200486, 0.0, 266.1246896917541],
+    [0.0, 327.66355688970094, 326.05116417420976],
+    [0.0, 0.0, 1.0]
+])
+
+# For standard camera model, using 8 coefficients format (k1, k2, p1, p2, k3, k4, k5, k6)
 D2 = np.array([
-    -0.053200225373542735,
-    0.03182203889525646,
-    -0.03173614929236543,
-    0.009767890209496633
+    0.5729525396536029,  # k1
+    0.0020189103859255446,  # k2
+    -0.00011978871703312007,  # p1
+    4.151954995754269e-05,  # p2
+    -0.0012806796277598455,  # k3
+    0.9254672528339936,  # k4
+    0.10857346697421204,  # k5
+    -0.006363662121772228  # k6
 ])
 
-# # Rotation and translation from left to right camera
+#   - [0.9999871153098752, 0.001003502077869496, -0.004976162960663991, -0.0004100737193986931]
+#   - [-0.0009912983287079897, 0.9999964968587095, 0.0024543019230421985, -0.0649217727292534]
+#   - [0.004978608425541555, -0.002449337438096166, 0.9999846069836558, -3.724150566495725e-05]
+#   - [0.0, 0.0, 0.0, 1.0]
+# Rotation and translation from left to right camera
 R = np.array([
-    [9.99964716e-01, 5.22597035e-03, -6.66162030e-03],
-    [-5.24784793e-03, 9.99980944e-01, -3.28138833e-03],
-    [6.64477369e-03, 3.31630614e-03, 9.99972337e-01]
+    [0.9999871153098752, 0.001003502077869496, -0.004976162960663991],
+    [-0.0009912983287079897, 0.9999964968587095, 0.0024543019230421985],
+    [0.004978608425541555, -0.002449337438096166, 0.9999846069836558]
 ])
 
-T = np.array([-5.11477817e-04, -6.50395836e-02, -7.49796887e-05])
+T = np.array([-0.0004100737193986931, -0.0649217727292534, -3.724150566495725e-05])
 
-# --------------------------------------------
 
-# R = np.array([
-#     [0.9999641553975523, 0.0052259809020549775, -0.00666160969022284],
-#     [-0.005247928242327688, 0.999980845685386, -0.00328138865380209],
-#     [0.006644333617218029, 0.0033162306833630123, 0.9999724273422901]
-# ])
-#
-# T = np.array([-0.0005115137246098722, -0.06503955280279526, -7.49217089659946e-05])
-
+# R = R.T
+# T = -R @ T
 # --------------------------------------------
 # 2. Load Images and Determine Image Size
 # --------------------------------------------
 
 # Paths to the left and right images
-left_image_path = "/home/roborock/下载/000385_converted_log/camera/camera0/156039.png"
-right_image_path = "/home/roborock/下载/000385_converted_log/camera/camera1/156039.png"
+image1_path = "/home/roborock/datasets/roborock/stereo/mower/78_normal_z_10X8_cloudy/camera/camera0/487690.png"
+image0_path = "/home/roborock/datasets/roborock/stereo/mower/78_normal_z_10X8_cloudy/camera/camera1/487690.png"
 
 # Read images in grayscale
-img1 = cv2.imread(left_image_path, cv2.IMREAD_GRAYSCALE)
-img2 = cv2.imread(right_image_path, cv2.IMREAD_GRAYSCALE)
+img1 = cv2.imread(image0_path, cv2.IMREAD_GRAYSCALE)
+img2 = cv2.imread(image1_path, cv2.IMREAD_GRAYSCALE)
 
 if img1.shape != img2.shape:
     raise ValueError("Left and right images must have the same dimensions.")
@@ -75,14 +94,12 @@ image_size = (img1.shape[1], img1.shape[0])  # (width, height)
 # --------------------------------------------
 # 3. Perform Stereo Rectification
 # --------------------------------------------
-zoom_factor = 0.7  # 0 < zoom_factor <= 1.0，根据需要调整
+zoom_factor = 0.55  # 0 < zoom_factor <= 1.0，根据需要调整
 
 # Perform stereo rectification using fisheye module
-R1, R2, P1, P2, Q = cv2.fisheye.stereoRectify(
+R1, R2, P1, P2, Q, _, _ = cv2.stereoRectify(
     K1, D1, K2, D2, image_size, R, T,
-    flags=cv2.CALIB_ZERO_DISPARITY,
-    balance=0,
-    fov_scale=1
+    flags=cv2.CALIB_ZERO_DISPARITY
 )
 
 print("R1:\n", R1)
@@ -127,12 +144,12 @@ print("P1_zoomed:\n", P1_zoomed)
 print("P2_zoomed:\n", P2_zoomed)
 
 # Generate undistort rectify map for the left camera
-map1x, map1y = cv2.fisheye.initUndistortRectifyMap(
+map1x, map1y = cv2.initUndistortRectifyMap(
     K1, D1, R1, P1_zoomed, image_size, cv2.CV_32FC1
 )
 
 # Generate undistort rectify map for the right camera
-map2x, map2y = cv2.fisheye.initUndistortRectifyMap(
+map2x, map2y = cv2.initUndistortRectifyMap(
     K2, D2, R2, P2_zoomed, image_size, cv2.CV_32FC1
 )
 
@@ -150,7 +167,7 @@ rectified_img2 = cv2.remap(img2, map2x, map2y, cv2.INTER_LINEAR)
 # 7. Visualize Rectified Images
 # --------------------------------------------
 
-def draw_grid(img, step=50, color=(255, 0, 0)):
+def draw_grid(img, step=30, color=(225, 0, 0)):
     """
     Draws a grid on the image for visual verification.
     """
@@ -166,7 +183,7 @@ grid_img1 = draw_grid(rectified_img1.copy())
 grid_img2 = draw_grid(rectified_img2.copy())
 
 # 拼接左右校正后的图像
-combined_image = np.hstack((grid_img1, grid_img2))
+combined_image = np.vstack((grid_img1, grid_img2))
 
 # 保存拼接后的图像
 output_dir = os.path.dirname("/home/roborock/")  # 输出路径与输入图像目录相同
