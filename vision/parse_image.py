@@ -10,8 +10,8 @@ def parse_args():
     parser.add_argument('--root_folder', type=str, help='Path to the root folder')
     parser.add_argument('--yuv_folder', type=str, help='Path to the YUV folder')
     parser.add_argument('--yuv_file', type=str, help='Path to a single YUV file')
-    parser.add_argument('--image_width', type=int, default=544, help='Image width')
-    parser.add_argument('--image_height', type=int, default=640, help='Image height')
+    parser.add_argument('--image_width', type=int, default=1088, help='Image width')
+    parser.add_argument('--image_height', type=int, default=1280, help='Image height')
     parser.add_argument('--rotate_90', action='store_true', help='Rotate image 90 degrees clockwise')
     return parser.parse_args()
 
@@ -33,7 +33,15 @@ def parse_yuv_image(yuv_file_path, output_image_path, width, height, rotate_90=F
         
         # 如果需要旋转图像，顺时针旋转90度
         if rotate_90:
-            bgr_image = cv2.rotate(bgr_image, cv2.ROTATE_90_CLOCKWISE)
+            # 临时需求：left 图像逆时针旋转90度，right 图像顺时针旋转90度
+            if 'L' in yuv_file_path or 'left' in yuv_file_path:
+                # 左相机图像逆时针旋转90度
+                bgr_image = cv2.rotate(bgr_image, cv2.ROTATE_90_COUNTERCLOCKWISE)
+                print(f"左相机图像逆时针旋转90度: {yuv_file_path}")
+            elif 'R' in yuv_file_path or 'right' in yuv_file_path:
+                # 右相机图像顺时针旋转90度
+                bgr_image = cv2.rotate(bgr_image, cv2.ROTATE_90_CLOCKWISE)
+                print(f"右相机图像顺时针旋转90度: {yuv_file_path}")
             
         cv2.imwrite(output_image_path, bgr_image)
         print(f"Converted: {yuv_file_path} -> {output_image_path}")

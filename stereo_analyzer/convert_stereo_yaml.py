@@ -55,6 +55,15 @@ def read_yaml_safely(file_path):
     # Parse the fixed content
     return yaml.safe_load(content)
 
+def map_distortion_model(distortion_model):
+    """Map distortion model names from camchain format to sensor.yaml format."""
+    mapping = {
+        'radtan8': 'radial-tangential8',
+        'equidistant': 'kannala-brandt',
+        'none': 'double-sphere',
+    }
+    return mapping.get(distortion_model, distortion_model)
+
 def update_sensor_yaml(input_path, output_path, swap_cameras=False, template_path=None, divide_intrinsics=True):
     """Update sensor.yaml with calibration parameters from OpenCV YAML format."""
     # Load calibration parameters from stereo YAML
@@ -80,9 +89,9 @@ def update_sensor_yaml(input_path, output_path, swap_cameras=False, template_pat
     T_B_C_from_stereo = create_T_B_C(R, T)
     identity_matrix = np.eye(4)
     
-    # Extract the first 8 elements of distortion coefficients
-    D1_first8 = D1[:8].flatten().tolist()
-    D2_first8 = D2[:8].flatten().tolist()
+    # Extract distortion coefficients
+    D1_list = D1.flatten().tolist()
+    D2_list = D2.flatten().tolist()
     
     # Load the template YAML file safely
     template_file = template_path if template_path else output_path
@@ -96,7 +105,10 @@ def update_sensor_yaml(input_path, output_path, swap_cameras=False, template_pat
         
         if swap_cameras and camera1 is not None:
             # When swapping, camera0 gets cam2 data, camera1 gets cam1 data
-            camera0['camera']['distortion']['data'] = D2_first8
+            camera0['camera']['distortion']['data'] = D2_list
+            camera0['camera']['distortion']['cols'] = 1
+            camera0['camera']['distortion']['rows'] = len(D2_list)
+            
             camera0['camera']['intrinsics']['data'] = [
                 float(M2_processed[0, 0]),  # fx
                 float(M2_processed[1, 1]),  # fy
@@ -111,7 +123,10 @@ def update_sensor_yaml(input_path, output_path, swap_cameras=False, template_pat
             T_B_C_cam1 = T_B_C_from_stereo
             
             # Update camera1 with cam1 data
-            camera1['camera']['distortion']['data'] = D1_first8
+            camera1['camera']['distortion']['data'] = D1_list
+            camera1['camera']['distortion']['cols'] = 1
+            camera1['camera']['distortion']['rows'] = len(D1_list)
+            
             camera1['camera']['intrinsics']['data'] = [
                 float(M1_processed[0, 0]),  # fx
                 float(M1_processed[1, 1]),  # fy
@@ -120,7 +135,10 @@ def update_sensor_yaml(input_path, output_path, swap_cameras=False, template_pat
             ]
         else:
             # Default/no-swap case: camera0 gets cam1 data
-            camera0['camera']['distortion']['data'] = D1_first8
+            camera0['camera']['distortion']['data'] = D1_list
+            camera0['camera']['distortion']['cols'] = 1
+            camera0['camera']['distortion']['rows'] = len(D1_list)
+            
             camera0['camera']['intrinsics']['data'] = [
                 float(M1_processed[0, 0]),  # fx
                 float(M1_processed[1, 1]),  # fy
@@ -133,7 +151,10 @@ def update_sensor_yaml(input_path, output_path, swap_cameras=False, template_pat
             
             # Update camera1 if it exists (no swap case)
             if camera1 is not None:
-                camera1['camera']['distortion']['data'] = D2_first8
+                camera1['camera']['distortion']['data'] = D2_list
+                camera1['camera']['distortion']['cols'] = 1
+                camera1['camera']['distortion']['rows'] = len(D2_list)
+                
                 camera1['camera']['intrinsics']['data'] = [
                     float(M2_processed[0, 0]),  # fx
                     float(M2_processed[1, 1]),  # fy
@@ -208,9 +229,17 @@ def update_sensor_yaml_from_camchain(input_path, output_path, swap_cameras=False
         cam0_intrinsics_processed = cam0_intrinsics.copy()
         cam1_intrinsics_processed = cam1_intrinsics.copy()
     
+    # Get distortion model and coefficients
+    cam0_distortion_model = cam0.get('distortion_model', 'none')
+    cam1_distortion_model = cam1.get('distortion_model', 'none')
+    
+    # Map distortion models to sensor.yaml format
+    cam0_distortion_type = map_distortion_model(cam0_distortion_model)
+    cam1_distortion_type = map_distortion_model(cam1_distortion_model)
+    
     # Get distortion coefficients
-    cam0_distortion = np.array(cam0['distortion_coeffs'])
-    cam1_distortion = np.array(cam1['distortion_coeffs'])
+    cam0_distortion = np.array(cam0.get('distortion_coeffs', []))
+    cam1_distortion = np.array(cam1.get('distortion_coeffs', []))
     
     # Get T_cn_cnm1 transformation matrix
     if 'T_cn_cnm1' not in cam1:
@@ -223,10 +252,6 @@ def update_sensor_yaml_from_camchain(input_path, output_path, swap_cameras=False
     template_file = template_path if template_path else output_path
     sensor_data = read_yaml_safely(template_file)
     
-    # Make sure cam0 distortion and cam1 distortion have 8 elements (pad with zeros if necessary)
-    cam0_dist_padded = np.pad(cam0_distortion, (0, max(0, 8 - len(cam0_distortion))), 'constant').tolist()
-    cam1_dist_padded = np.pad(cam1_distortion, (0, max(0, 8 - len(cam1_distortion))), 'constant').tolist()
-    
     # Update camera parameters in sensor.yaml based on swap setting
     if 'cameras' in sensor_data['sensor'] and len(sensor_data['sensor']['cameras']) > 1:
         # Get camera objects
@@ -235,7 +260,11 @@ def update_sensor_yaml_from_camchain(input_path, output_path, swap_cameras=False
         
         if swap_cameras:
             # When swapping, camera0 gets cam1 data, camera1 gets cam0 data
-            camera0['camera']['distortion']['data'] = cam1_dist_padded
+            camera0['camera']['distortion']['data'] = cam1_distortion.tolist()
+            camera0['camera']['distortion']['cols'] = 1
+            camera0['camera']['distortion']['rows'] = len(cam1_distortion)
+            camera0['camera']['distortion_type'] = cam1_distortion_type
+            
             camera0['camera']['intrinsics']['data'] = [
                 float(cam1_intrinsics_processed[0]),  # fx
                 float(cam1_intrinsics_processed[1]),  # fy
@@ -243,7 +272,11 @@ def update_sensor_yaml_from_camchain(input_path, output_path, swap_cameras=False
                 float(cam1_intrinsics_processed[3])   # cy
             ]
             
-            camera1['camera']['distortion']['data'] = cam0_dist_padded
+            camera1['camera']['distortion']['data'] = cam0_distortion.tolist()
+            camera1['camera']['distortion']['cols'] = 1
+            camera1['camera']['distortion']['rows'] = len(cam0_distortion)
+            camera1['camera']['distortion_type'] = cam0_distortion_type
+            
             camera1['camera']['intrinsics']['data'] = [
                 float(cam0_intrinsics_processed[0]),  # fx
                 float(cam0_intrinsics_processed[1]),  # fy
@@ -258,7 +291,11 @@ def update_sensor_yaml_from_camchain(input_path, output_path, swap_cameras=False
             T_B_C_cam1 = T_cn_cnm1
         else:
             # When not swapping, camera0 gets cam0 data, camera1 gets cam1 data
-            camera0['camera']['distortion']['data'] = cam0_dist_padded
+            camera0['camera']['distortion']['data'] = cam0_distortion.tolist()
+            camera0['camera']['distortion']['cols'] = 1
+            camera0['camera']['distortion']['rows'] = len(cam0_distortion)
+            camera0['camera']['distortion_type'] = cam0_distortion_type
+            
             camera0['camera']['intrinsics']['data'] = [
                 float(cam0_intrinsics_processed[0]),  # fx
                 float(cam0_intrinsics_processed[1]),  # fy
@@ -266,7 +303,11 @@ def update_sensor_yaml_from_camchain(input_path, output_path, swap_cameras=False
                 float(cam0_intrinsics_processed[3])   # cy
             ]
             
-            camera1['camera']['distortion']['data'] = cam1_dist_padded
+            camera1['camera']['distortion']['data'] = cam1_distortion.tolist()
+            camera1['camera']['distortion']['cols'] = 1
+            camera1['camera']['distortion']['rows'] = len(cam1_distortion)
+            camera1['camera']['distortion_type'] = cam1_distortion_type
+            
             camera1['camera']['intrinsics']['data'] = [
                 float(cam1_intrinsics_processed[0]),  # fx
                 float(cam1_intrinsics_processed[1]),  # fy
@@ -296,6 +337,11 @@ def update_sensor_yaml_from_camchain(input_path, output_path, swap_cameras=False
             float(T_B_C_cam1[3, 0]), float(T_B_C_cam1[3, 1]), float(T_B_C_cam1[3, 2]), float(T_B_C_cam1[3, 3])
         ]
         camera1['T_B_C']['data'] = T_B_C_cam1_list
+        
+        # Print distortion model mapping information
+        print(f"Mapped distortion models:")
+        print(f"  cam0: {cam0_distortion_model} -> {cam0_distortion_type}")
+        print(f"  cam1: {cam1_distortion_model} -> {cam1_distortion_type}")
     
     # Write the updated YAML to the output file
     with open(output_path, 'w') as file:

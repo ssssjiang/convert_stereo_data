@@ -22,12 +22,6 @@ def convert_image_to_ros_msg(image_path, timestamp, frame_id):
         rospy.logerr("Failed to read image: {}".format(image_path))
         raise ValueError("Failed to read image: {}".format(image_path))
 
-    # # Crop the image to keep the center and resize to 640x480
-    # height, width = image.shape
-    # crop_x = (width - 640) // 2
-    # crop_y = (height - 480) // 2
-    # cropped_image = image[crop_y:crop_y + 480, crop_x:crop_x + 640]
-
     cv2.imshow('image', image)
     cv2.waitKey(1)
 
@@ -86,70 +80,69 @@ def process_dataset(dataset_path, output_bag_file, start_time, end_time):
         last_timestamp = -1
         cam0_csv = os.path.join(dataset_path, 'camera/camera0', 'data.csv')
         cam0_folder = os.path.join(dataset_path, 'camera/camera0')
-        cam0_data = read_csv_file(cam0_csv)
-        for row in cam0_data:
-            try:
-                timestamp = float(row[0]) / 1e3
-                if timestamp <= last_timestamp:
-                    rospy.logwarn("Skipping non-strictly-increasing timestamp in camera 0: {}".format(timestamp))
-                    continue
-                if start_time <= timestamp <= end_time:
-                    image_path = os.path.join(cam0_folder, row[1])
-                    img_msg = convert_image_to_ros_msg(image_path, timestamp, 'cam0')
-                    bag.write('/cam0/image_raw', img_msg, rospy.Time.from_sec(timestamp))
-                    stats['cam0'] += 1
-                    last_timestamp = timestamp
-            except (ValueError, IndexError) as e:
-                rospy.logwarn("Invalid camera 0 data: {}, error: {}".format(row, e))
-
-        # Print statistics
-        print("Data processing statistics:")
-        for key, count in stats.items():
-            print("{}: {} messages".format(key, count))
+        if os.path.exists(cam0_csv):
+            cam0_data = read_csv_file(cam0_csv)
+            for row in cam0_data:
+                try:
+                    timestamp = float(row[0]) / 1e3
+                    if timestamp <= last_timestamp:
+                        rospy.logwarn("Skipping non-strictly-increasing timestamp in camera 0: {}".format(timestamp))
+                        continue
+                    if start_time <= timestamp <= end_time:
+                        image_path = os.path.join(cam0_folder, row[1])
+                        img_msg = convert_image_to_ros_msg(image_path, timestamp, 'cam0')
+                        bag.write('/cam0/image_raw', img_msg, rospy.Time.from_sec(timestamp))
+                        stats['cam0'] += 1
+                        last_timestamp = timestamp
+                except (ValueError, IndexError) as e:
+                    rospy.logwarn("Invalid camera 0 data: {}, error: {}".format(row, e))
+        else:
+            rospy.logwarn("Camera 0 数据文件不存在: {}".format(cam0_csv))
 
         # Process camera 1
         last_timestamp = -1
         cam1_csv = os.path.join(dataset_path, 'camera/camera1', 'data.csv')
         cam1_folder = os.path.join(dataset_path, 'camera/camera1')
-        cam1_data = read_csv_file(cam1_csv)
-        for row in cam1_data:
-            try:
-                timestamp = float(row[0]) / 1e3
-                if timestamp <= last_timestamp:
-                    rospy.logwarn("Skipping non-strictly-increasing timestamp in camera 1: {}".format(timestamp))
-                    continue
-                if start_time <= timestamp <= end_time:
-                    image_path = os.path.join(cam1_folder, row[1])
-                    img_msg = convert_image_to_ros_msg(image_path, timestamp, 'cam1')
-                    bag.write('/cam1/image_raw', img_msg, rospy.Time.from_sec(timestamp))
-                    stats['cam1'] += 1
-                    last_timestamp = timestamp
-            except (ValueError, IndexError) as e:
-                rospy.logwarn("Invalid camera 1 data: {}, error: {}".format(row, e))
-
-        # Print statistics
-        print("Data processing statistics:")
-        for key, count in stats.items():
-            print("{}: {} messages".format(key, count))
+        if os.path.exists(cam1_csv):
+            cam1_data = read_csv_file(cam1_csv)
+            for row in cam1_data:
+                try:
+                    timestamp = float(row[0]) / 1e3
+                    if timestamp <= last_timestamp:
+                        rospy.logwarn("Skipping non-strictly-increasing timestamp in camera 1: {}".format(timestamp))
+                        continue
+                    if start_time <= timestamp <= end_time:
+                        image_path = os.path.join(cam1_folder, row[1])
+                        img_msg = convert_image_to_ros_msg(image_path, timestamp, 'cam1')
+                        bag.write('/cam1/image_raw', img_msg, rospy.Time.from_sec(timestamp))
+                        stats['cam1'] += 1
+                        last_timestamp = timestamp
+                except (ValueError, IndexError) as e:
+                    rospy.logwarn("Invalid camera 1 data: {}, error: {}".format(row, e))
+        else:
+            rospy.logwarn("Camera 1 数据文件不存在: {}".format(cam1_csv))
 
         # Process IMU
         last_timestamp = -1
         imu_csv = os.path.join(dataset_path, 'imu.csv')
-        imu_data = read_csv_file(imu_csv)
-        for row in imu_data:
-            try:
-                timestamp = float(row[0]) / 1e3
-                if timestamp <= last_timestamp:
-                    rospy.logwarn("Skipping non-strictly-increasing timestamp in IMU: {}".format(timestamp))
-                    continue
-                if start_time <= timestamp <= end_time:
-                    imu_msg = convert_imu_to_ros_msg(row, timestamp)
-                    if imu_msg:
-                        bag.write('/imu0', imu_msg, rospy.Time.from_sec(timestamp))
-                        stats['imu'] += 1
-                        last_timestamp = timestamp
-            except (ValueError, IndexError) as e:
-                rospy.logwarn("Invalid IMU data: {}, error: {}".format(row, e))
+        if os.path.exists(imu_csv):
+            imu_data = read_csv_file(imu_csv)
+            for row in imu_data:
+                try:
+                    timestamp = float(row[0]) / 1e3
+                    if timestamp <= last_timestamp:
+                        rospy.logwarn("Skipping non-strictly-increasing timestamp in IMU: {}".format(timestamp))
+                        continue
+                    if start_time <= timestamp <= end_time:
+                        imu_msg = convert_imu_to_ros_msg(row, timestamp)
+                        if imu_msg:
+                            bag.write('/imu0', imu_msg, rospy.Time.from_sec(timestamp))
+                            stats['imu'] += 1
+                            last_timestamp = timestamp
+                except (ValueError, IndexError) as e:
+                    rospy.logwarn("Invalid IMU data: {}, error: {}".format(row, e))
+        else:
+            rospy.logwarn("IMU数据文件不存在: {}".format(imu_csv))
 
         # Process VIO pose
         last_timestamp = -1
