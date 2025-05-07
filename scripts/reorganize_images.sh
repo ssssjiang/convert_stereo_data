@@ -24,14 +24,19 @@ for file in "$root_dir"/*.png; do
     filename=$(basename "$file")
     
     # 提取时间戳字段（假设格式为 AT_544x640_4998_386_58435_left_0.png）
-    timestamp=$(echo "$filename" | awk -F'_' '{print $5}')
+    # 格式也可能为 L_22001_640X544.png
+    if [[ "$filename" == *"left"* || "$filename" == *"right"* ]]; then
+      timestamp=$(echo "$filename" | awk -F'_' '{print $5}')
+    elif [[ "$filename" == *"L_"* || "$filename" == *"R_"* ]]; then
+      timestamp=$(echo "$filename" | awk -F'_' '{print $2}')
+    fi
     
     # 判断是左目还是右目
-    if [[ "$filename" == *"left"* ]]; then
+    if [[ "$filename" == *"left"*  || "$filename" == *"L_"* ]]; then
       # 左目图像移动到camera0
       mv "$file" "$root_dir/camera/camera0/${timestamp}.png"
       echo "Left image: $file -> $root_dir/camera/camera0/${timestamp}.png"
-    elif [[ "$filename" == *"right"* ]]; then
+    elif [[ "$filename" == *"right"* || "$filename" == *"R_"* ]]; then
       # 右目图像移动到camera1
       mv "$file" "$root_dir/camera/camera1/${timestamp}.png"
       echo "Right image: $file -> $root_dir/camera/camera1/${timestamp}.png"
@@ -44,4 +49,5 @@ done
 echo "目录重构和重命名完成！"
 
 slam-toolkit --input "$root_dir" --steps convert
-slam-toolkit --input "$root_dir" --steps analyze --analyzers stereo --params /home/roborock/下载/sensor.yaml --stereo-sampling-rate 100
+# slam-toolkit --input "$root_dir" --steps analyze --analyzers stereo --params /home/roborock/下载/sensor.yaml --stereo-sampling-rate 100
+slam-toolkit --input "$root_dir" --steps analyze --analyzers frame_rate,stereo --params /home/roborock/下载/sensor.yaml --stereo-sampling-rate 100

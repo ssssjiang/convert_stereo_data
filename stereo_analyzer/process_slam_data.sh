@@ -81,7 +81,7 @@ function process_single_sensor {
     # 使用sensor.yaml执行SLAM分析
     echo -e "\n----- 执行SLAM分析 -----"
     echo "执行: slam-toolkit --input \"${DIST_DIR}\" --steps analyze --analyzers frame_rate,stereo,synchronization,anomaly --params \"${SENSOR_FILE}\""
-    slam-toolkit --input "${DIST_DIR}" --steps analyze --analyzers frame_rate --params "${SENSOR_FILE}"
+    slam-toolkit --input "${DIST_DIR}" --steps analyze --analyzers frame_rate,stereo,synchronization,anomaly --params "${SENSOR_FILE}"
     
     # 重命名分析结果目录
     echo -e "\n----- 重命名分析结果目录 -----"
