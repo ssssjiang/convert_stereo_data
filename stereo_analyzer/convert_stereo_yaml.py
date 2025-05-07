@@ -64,6 +64,30 @@ def map_distortion_model(distortion_model):
     }
     return mapping.get(distortion_model, distortion_model)
 
+def limit_distortion_params(distortion_params, max_dim=8):
+    """Limit distortion parameters to a maximum dimension.
+    
+    Args:
+        distortion_params: List or numpy array of distortion parameters
+        max_dim: Maximum number of dimensions allowed (default: 8)
+        
+    Returns:
+        List of distortion parameters limited to max_dim
+    """
+    # Convert to list if it's not already
+    if isinstance(distortion_params, np.ndarray):
+        distortion_list = distortion_params.flatten().tolist()
+    else:
+        distortion_list = list(distortion_params)
+    
+    # Limit to max_dim parameters
+    if len(distortion_list) > max_dim:
+        limited_params = distortion_list[:max_dim]
+        print(f"Warning: Truncated distortion parameters from {len(distortion_list)} to {max_dim} dimensions")
+        return limited_params
+    
+    return distortion_list
+
 def update_sensor_yaml(input_path, output_path, swap_cameras=False, template_path=None, divide_intrinsics=True):
     """Update sensor.yaml with calibration parameters from OpenCV YAML format."""
     # Load calibration parameters from stereo YAML
@@ -89,9 +113,9 @@ def update_sensor_yaml(input_path, output_path, swap_cameras=False, template_pat
     T_B_C_from_stereo = create_T_B_C(R, T)
     identity_matrix = np.eye(4)
     
-    # Extract distortion coefficients
-    D1_list = D1.flatten().tolist()
-    D2_list = D2.flatten().tolist()
+    # Extract distortion coefficients and limit to 8 dimensions
+    D1_list = limit_distortion_params(D1.flatten().tolist())
+    D2_list = limit_distortion_params(D2.flatten().tolist())
     
     # Load the template YAML file safely
     template_file = template_path if template_path else output_path
@@ -237,9 +261,9 @@ def update_sensor_yaml_from_camchain(input_path, output_path, swap_cameras=False
     cam0_distortion_type = map_distortion_model(cam0_distortion_model)
     cam1_distortion_type = map_distortion_model(cam1_distortion_model)
     
-    # Get distortion coefficients
-    cam0_distortion = np.array(cam0.get('distortion_coeffs', []))
-    cam1_distortion = np.array(cam1.get('distortion_coeffs', []))
+    # Get distortion coefficients and limit to 8 dimensions
+    cam0_distortion = limit_distortion_params(np.array(cam0.get('distortion_coeffs', [])))
+    cam1_distortion = limit_distortion_params(np.array(cam1.get('distortion_coeffs', [])))
     
     # Get T_cn_cnm1 transformation matrix
     if 'T_cn_cnm1' not in cam1:
@@ -260,7 +284,7 @@ def update_sensor_yaml_from_camchain(input_path, output_path, swap_cameras=False
         
         if swap_cameras:
             # When swapping, camera0 gets cam1 data, camera1 gets cam0 data
-            camera0['camera']['distortion']['data'] = cam1_distortion.tolist()
+            camera0['camera']['distortion']['data'] = cam1_distortion
             camera0['camera']['distortion']['cols'] = 1
             camera0['camera']['distortion']['rows'] = len(cam1_distortion)
             camera0['camera']['distortion_type'] = cam1_distortion_type
@@ -272,7 +296,7 @@ def update_sensor_yaml_from_camchain(input_path, output_path, swap_cameras=False
                 float(cam1_intrinsics_processed[3])   # cy
             ]
             
-            camera1['camera']['distortion']['data'] = cam0_distortion.tolist()
+            camera1['camera']['distortion']['data'] = cam0_distortion
             camera1['camera']['distortion']['cols'] = 1
             camera1['camera']['distortion']['rows'] = len(cam0_distortion)
             camera1['camera']['distortion_type'] = cam0_distortion_type
@@ -291,7 +315,7 @@ def update_sensor_yaml_from_camchain(input_path, output_path, swap_cameras=False
             T_B_C_cam1 = T_cn_cnm1
         else:
             # When not swapping, camera0 gets cam0 data, camera1 gets cam1 data
-            camera0['camera']['distortion']['data'] = cam0_distortion.tolist()
+            camera0['camera']['distortion']['data'] = cam0_distortion
             camera0['camera']['distortion']['cols'] = 1
             camera0['camera']['distortion']['rows'] = len(cam0_distortion)
             camera0['camera']['distortion_type'] = cam0_distortion_type
@@ -303,7 +327,7 @@ def update_sensor_yaml_from_camchain(input_path, output_path, swap_cameras=False
                 float(cam0_intrinsics_processed[3])   # cy
             ]
             
-            camera1['camera']['distortion']['data'] = cam1_distortion.tolist()
+            camera1['camera']['distortion']['data'] = cam1_distortion
             camera1['camera']['distortion']['cols'] = 1
             camera1['camera']['distortion']['rows'] = len(cam1_distortion)
             camera1['camera']['distortion_type'] = cam1_distortion_type

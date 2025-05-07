@@ -13,9 +13,10 @@ def parse_args():
     parser.add_argument('--image_width', type=int, default=1088, help='Image width')
     parser.add_argument('--image_height', type=int, default=1280, help='Image height')
     parser.add_argument('--rotate_90', action='store_true', help='Rotate image 90 degrees clockwise')
+    parser.add_argument('--resize_factor', type=float, default=1.0, help='Resize factor for the image (e.g., 0.5 to resize to half)')
     return parser.parse_args()
 
-def parse_yuv_image(yuv_file_path, output_image_path, width, height, rotate_90=False):
+def parse_yuv_image(yuv_file_path, output_image_path, width, height, rotate_90=False, resize_factor=1.0):
     try:
         with open(yuv_file_path, 'rb') as yuv_file:
             yuv_data = yuv_file.read()
@@ -42,13 +43,21 @@ def parse_yuv_image(yuv_file_path, output_image_path, width, height, rotate_90=F
                 # 右相机图像顺时针旋转90度
                 bgr_image = cv2.rotate(bgr_image, cv2.ROTATE_90_CLOCKWISE)
                 print(f"右相机图像顺时针旋转90度: {yuv_file_path}")
+        
+        # 如果需要调整图像大小
+        if resize_factor != 1.0:
+            orig_height, orig_width = bgr_image.shape[:2]
+            new_width = int(orig_width * resize_factor)
+            new_height = int(orig_height * resize_factor)
+            bgr_image = cv2.resize(bgr_image, (new_width, new_height), interpolation=cv2.INTER_AREA)
+            print(f"图像已调整大小: {orig_width}x{orig_height} -> {new_width}x{new_height}")
             
         cv2.imwrite(output_image_path, bgr_image)
         print(f"Converted: {yuv_file_path} -> {output_image_path}")
     except Exception as e:
         print(f"Error processing file {yuv_file_path}: {e}")
 
-def process_folder(yuv_folder_path, output_folder_path, width, height, rotate_90=False):
+def process_folder(yuv_folder_path, output_folder_path, width, height, rotate_90=False, resize_factor=1.0):
     if not os.path.exists(yuv_folder_path):
         raise FileNotFoundError(f"YUV folder not found: {yuv_folder_path}")
 
@@ -70,23 +79,24 @@ def process_folder(yuv_folder_path, output_folder_path, width, height, rotate_90
                     print(f"Image already converted: {output_image_path}. Skipping.")
                     continue
 
-                parse_yuv_image(yuv_file_path, output_image_path, width, height, rotate_90)
+                parse_yuv_image(yuv_file_path, output_image_path, width, height, rotate_90, resize_factor)
 
 def main():
     args = parse_args()
     image_width = args.image_width
     image_height = args.image_height
     rotate_90 = args.rotate_90
+    resize_factor = args.resize_factor
 
     if args.yuv_file:
         # Process single YUV file
         output_image_path = args.yuv_file.replace('.yuv', '.png')
-        parse_yuv_image(args.yuv_file, output_image_path, image_width, image_height, rotate_90)
+        parse_yuv_image(args.yuv_file, output_image_path, image_width, image_height, rotate_90, resize_factor)
 
     elif args.yuv_folder:
         # Process YUV folder
         rgb_folder_path = args.yuv_folder + '_rgb'
-        process_folder(args.yuv_folder, rgb_folder_path, image_width, image_height, rotate_90)
+        process_folder(args.yuv_folder, rgb_folder_path, image_width, image_height, rotate_90, resize_factor)
 
     elif args.root_folder:
         # Search and process all DEV folders under root folder
@@ -102,7 +112,7 @@ def main():
         for dev_folder in dev_folders:
             print(f"Processing folder: {dev_folder}")
             rgb_folder_path = dev_folder + '_rgb'
-            process_folder(dev_folder, rgb_folder_path, image_width, image_height, rotate_90)
+            process_folder(dev_folder, rgb_folder_path, image_width, image_height, rotate_90, resize_factor)
 
     else:
         raise ValueError("You must specify --yuv_file, --yuv_folder, or --root_folder")

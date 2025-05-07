@@ -2,6 +2,7 @@
 
 # 定义根目录
 root_dir=$1
+sensor_yaml=$2
 
 # # 如果命名中有空格，先去掉空格，重命名
 # root_dir_new=$(echo "$root_dir" | tr -d ' ')
@@ -9,7 +10,7 @@ root_dir=$1
 # root_dir=$root_dir_new
 
 # 调用 parse_image.py 脚本
-python ../vision/parse_image.py --yuv_folder "$root_dir" --rotate_90
+python ../vision/parse_image.py --yuv_folder "$root_dir" --rotate_90 --resize_factor 0.5
 
 root_dir=$root_dir"_rgb"
 
@@ -48,6 +49,10 @@ done
 
 echo "目录重构和重命名完成！"
 
+# convert sensor_yaml to vslam format
+sensor_yaml_new=$sensor_yaml"_new"
+python ../stereo_analyzer/convert_stereo_yaml.py --input "$sensor_yaml"  --output  "$sensor_yaml_new"  --template /home/roborock/下载/sy_calibr/sensor_sy_25.yaml
+
 slam-toolkit --input "$root_dir" --steps convert
 # slam-toolkit --input "$root_dir" --steps analyze --analyzers stereo --params /home/roborock/下载/sensor.yaml --stereo-sampling-rate 100
-slam-toolkit --input "$root_dir" --steps analyze --analyzers frame_rate,stereo --params /home/roborock/下载/sensor.yaml --stereo-sampling-rate 100
+slam-toolkit --input "$root_dir" --steps analyze --analyzers frame_rate,stereo --params "$sensor_yaml_new" --stereo-sampling-rate 100
