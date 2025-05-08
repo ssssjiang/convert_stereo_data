@@ -67,7 +67,7 @@ def save_pose_to_tum(bag_file, output_file, topic='/vio_pose'):
     except Exception as e:
         print("Error extracting /vio_pose: {}".format(e))
 
-def save_imu_to_file(bag_file, output_file, topic='/imu0'):
+def save_imu_to_file(bag_file, output_file, topic='/imu'):
     """
     Extract /imu0 data from a ROS bag and save it in a plain text format.
 
@@ -80,9 +80,13 @@ def save_imu_to_file(bag_file, output_file, topic='/imu0'):
         message_count = 0  # Counter for messages
         with rosbag.Bag(bag_file, 'r') as bag, open(output_file, 'w') as imu_file:
             print("Opening bag file: {}".format(bag_file))
+            
+            # 添加标题行
+            imu_file.write("#timestamp,gyro_x,gyro_y,gyro_z,accel_x,accel_y,accel_z\n")
+            
             for topic_name, msg, t in bag.read_messages(topics=[topic]):
-                # Extract timestamp
-                timestamp = msg.header.stamp.to_sec()
+                # Extract timestamp and convert to milliseconds as integer
+                timestamp = int(msg.header.stamp.to_sec() * 1000)
 
                 # Extract angular velocity (ax, ay, az)
                 ax = msg.angular_velocity.x
@@ -94,8 +98,8 @@ def save_imu_to_file(bag_file, output_file, topic='/imu0'):
                 ly = msg.linear_acceleration.y
                 lz = msg.linear_acceleration.z
 
-                # Write to IMU file
-                imu_file.write("{:.6f} {:.6f} {:.6f} {:.6f} {:.6f} {:.6f} {:.6f}\n".format(
+                # Write to IMU file using comma as delimiter
+                imu_file.write("{},{:.6f},{:.6f},{:.6f},{:.6f},{:.6f},{:.6f}\n".format(
                     timestamp, ax, ay, az, lx, ly, lz))
 
                 message_count += 1  # Increment counter
@@ -156,7 +160,7 @@ def save_images_from_bag(bag_file, output_dir, camera0_topic, camera1_topic):
                 cv2.imwrite(image_path, cv_image)
                 
                 # Write to CSV
-                camera0_csv.write("{},{}\n".format(timestamp_ns, filename))
+                camera0_csv.write("{},{}\n".format(timestamp_ms, filename))
                 
                 message_count_cam0 += 1
                 if message_count_cam0 % 100 == 0:
@@ -181,7 +185,7 @@ def save_images_from_bag(bag_file, output_dir, camera0_topic, camera1_topic):
                 cv2.imwrite(image_path, cv_image)
                 
                 # Write to CSV
-                camera1_csv.write("{},{}\n".format(timestamp_ns, filename))
+                camera1_csv.write("{},{}\n".format(timestamp_ms, filename))
                 
                 message_count_cam1 += 1
                 if message_count_cam1 % 100 == 0:
