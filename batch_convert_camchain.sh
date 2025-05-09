@@ -13,7 +13,7 @@ function show_help {
     echo "  --template <文件路径>    使用特定的模板sensor文件"
     echo "  --divide-intrinsics      将内参除以2（适用于半分辨率图像）"
     echo "  --camchain-pattern <模式> 查找特定模式的camchain文件（默认: *-vio-camchain-imucam.yaml）"
-    echo "  --rbc0-pattern <模式>    查找特定模式的rbc0文件（默认: *-rbc0.txt）"
+    echo "  --Tbc0-pattern <模式>    查找特定模式的Tbc0文件（默认: *-Tbc0.txt）"
     echo "  --dry-run                仅显示会执行的操作，不实际执行"
     echo "例如:"
     echo "  $0 /path/to/calibr_results"
@@ -31,7 +31,7 @@ BASE_DIR="$1"
 TEMPLATE_OPTION=""
 DIVIDE_OPTION=""
 CAMCHAIN_PATTERN="*-vio-camchain-imucam.yaml"
-RBC0_PATTERN="*-rbc0.txt"
+Tbc0_PATTERN="*-Tbc0.txt"
 DRY_RUN=0
 
 # 处理选项参数
@@ -53,8 +53,8 @@ while [ "$#" -gt 0 ]; do
             CAMCHAIN_PATTERN="$2"
             shift
             ;;
-        --rbc0-pattern)
-            RBC0_PATTERN="$2"
+        --Tbc0-pattern)
+            Tbc0_PATTERN="$2"
             shift
             ;;
         --dry-run)
@@ -93,34 +93,34 @@ function generate_sensor_filename {
     echo "sensor_${sensor_base_name}.yaml"
 }
 
-# 查找对应的rbc0文件
-function find_matching_rbc0 {
+# 查找对应的Tbc0文件
+function find_matching_Tbc0 {
     local camchain_path="$1"
     local dir_path=$(dirname "$camchain_path")
     local base_name=$(basename "$camchain_path" -vio-camchain-imucam.yaml)
     
     # 先尝试直接匹配
-    local matching_rbc0="$dir_path/${base_name}-rbc0.txt"
-    if [ -f "$matching_rbc0" ]; then
-        echo "$matching_rbc0"
+    local matching_Tbc0="$dir_path/${base_name}-Tbc0.txt"
+    if [ -f "$matching_Tbc0" ]; then
+        echo "$matching_Tbc0"
         return 0
     fi
     
-    # 如果没有找到，则在同一目录下查找rbc0文件
-    local found_rbc0=$(find "$dir_path" -maxdepth 1 -name "$base_name*-rbc0.txt" | head -n 1)
-    if [ ! -z "$found_rbc0" ]; then
-        echo "$found_rbc0"
+    # 如果没有找到，则在同一目录下查找Tbc0文件
+    local found_Tbc0=$(find "$dir_path" -maxdepth 1 -name "$base_name*-Tbc0.txt" | head -n 1)
+    if [ ! -z "$found_Tbc0" ]; then
+        echo "$found_Tbc0"
         return 0
     fi
     
-    # 如果还是没找到，尝试使用任何rbc0.txt文件
-    found_rbc0=$(find "$dir_path" -maxdepth 1 -name "*-rbc0.txt" | head -n 1)
-    if [ ! -z "$found_rbc0" ]; then
-        echo "$found_rbc0"
+    # 如果还是没找到，尝试使用任何Tbc0.txt文件
+    found_Tbc0=$(find "$dir_path" -maxdepth 1 -name "*-Tbc0.txt" | head -n 1)
+    if [ ! -z "$found_Tbc0" ]; then
+        echo "$found_Tbc0"
         return 0
     fi
     
-    # 没有找到任何rbc0文件
+    # 没有找到任何Tbc0文件
     echo ""
     return 1
 }
@@ -129,7 +129,7 @@ function find_matching_rbc0 {
 echo "===== 开始批量转换整机标定参数 ====="
 echo "基础目录: $BASE_DIR"
 echo "Camchain查找模式: $CAMCHAIN_PATTERN"
-echo "RBC0查找模式: $RBC0_PATTERN"
+echo "Tbc0查找模式: $Tbc0_PATTERN"
 
 # 初始化计数器
 total_files=0
@@ -144,12 +144,12 @@ while read camchain_file; do
     # 获取文件所在目录
     dir_path=$(dirname "$camchain_file")
     
-    # 查找对应的rbc0文件
-    rbc0_file=$(find_matching_rbc0 "$camchain_file")
+    # 查找对应的Tbc0文件
+    Tbc0_file=$(find_matching_Tbc0 "$camchain_file")
     
-    if [ -z "$rbc0_file" ]; then
+    if [ -z "$Tbc0_file" ]; then
         echo -e "\n处理 ($total_files): $camchain_file"
-        echo "  未找到对应的rbc0文件，跳过。"
+        echo "  未找到对应的Tbc0文件，跳过。"
         skipped_files=$((skipped_files + 1))
         continue
     fi
@@ -160,7 +160,7 @@ while read camchain_file; do
     sensor_output="$dir_path/$sensor_file_name"
     
     echo -e "\n处理 ($total_files): $camchain_file"
-    echo "  RBC0文件: $rbc0_file"
+    echo "  Tbc0文件: $Tbc0_file"
     echo "  ==> $sensor_output"
     
     # 构建直接调用Python脚本的命令
@@ -172,7 +172,7 @@ while read camchain_file; do
         cmd_options="$cmd_options $TEMPLATE_OPTION"
     fi
     
-    CONVERT_CMD="python3 $(dirname "$0")/convert_camchain_to_sensor.py --camchain \"$camchain_file\" --rbc0 \"$rbc0_file\" --output \"$sensor_output\" $cmd_options"
+    CONVERT_CMD="python3 $(dirname "$0")/convert_camchain_to_sensor.py --camchain \"$camchain_file\" --Tbc0 \"$Tbc0_file\" --output \"$sensor_output\" $cmd_options"
     
     # 创建输出目录（如果不存在）
     mkdir -p "$dir_path"
@@ -200,5 +200,5 @@ else
     echo "总Camchain文件数: $total_files"
     echo "成功转换: $converted_files"
     echo "失败转换: $failed_files"
-    echo "跳过转换（无rbc0文件）: $skipped_files"
+    echo "跳过转换（无Tbc0文件）: $skipped_files"
 fi 
