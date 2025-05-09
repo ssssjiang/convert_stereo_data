@@ -437,6 +437,7 @@ def process_okvis_cameras(okvis_data, cam0, cam1, swap_cameras, divide_intrinsic
     # Update wheel encoder parameters T_BS if present
     if 'wheel_encoder_parameters' in okvis_data:
         # T_BS is wheel to IMU transformation, which is T_B_I
+        # okvis 中 IMU 是 body，所以需要取逆
         T_I_B = np.linalg.inv(T_B_I)
         okvis_data['wheel_encoder_parameters']['T_BS'] = matrix_to_yaml_list(T_I_B)
     
