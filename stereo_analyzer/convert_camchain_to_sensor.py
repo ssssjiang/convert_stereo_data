@@ -4,6 +4,7 @@ import yaml
 import argparse
 import os
 import re
+import sys
 from stereo_utils import (
     read_yaml_safely, 
     map_distortion_model, 
@@ -27,15 +28,15 @@ def parse_args():
     parser.add_argument('--use_Tbc1', action='store_true',
                         help="If set, the input Tbc file is treated as Tbc1 instead of Tbc0")
     parser.add_argument('--output', type=str, default='sensor_output.yaml',
-                        help="Path to the output sensor YAML file")
-    parser.add_argument('--template', type=str, default='/home/roborock/下载/sensor_656.yaml', 
+                        help="Path to the output file prefix, suffixes will be added based on format")
+    parser.add_argument('--sensor_template', type=str, default='/home/roborock/下载/sensor_656.yaml', 
                         help="Path to the template sensor YAML file")
     parser.add_argument('--divide_intrinsics', action='store_true', 
                         help="Divide intrinsics by 2 (for half-resolution images)")
     parser.add_argument('--swap', action='store_true', 
                         help="Swap left and right cameras (camera0 and camera1)")
-    parser.add_argument('--format', type=str, choices=['sensor', 'okvis'], default='sensor',
-                        help="Output format: 'sensor' for sensor.yaml, 'okvis' for mower_stereo_light.yaml")
+    parser.add_argument('--format', type=str, choices=['sensor', 'okvis', 'all'], default='sensor',
+                        help="Output format: 'sensor' for sensor.yaml, 'okvis' for mower_stereo_light.yaml, 'all' for both")
     parser.add_argument('--okvis_template', type=str, default='/home/roborock/repos/okvis2/config/mower_stereo_light.yaml',
                         help="Path to the template OKVIS YAML file")
     return parser.parse_args()
@@ -67,7 +68,7 @@ def read_Tbc_txt(file_path):
     return matrix
 
 def convert_to_sensor_yaml(camchain_data, output_path, swap_cameras=False, 
-                       template_path=None, divide_intrinsics=True, print_debug=False,
+                       sensor_template=None, divide_intrinsics=True, print_debug=False,
                        Tbc_path=None, use_Tbc1=False):
     """Convert camchain data to sensor.yaml format.
     
@@ -75,7 +76,7 @@ def convert_to_sensor_yaml(camchain_data, output_path, swap_cameras=False,
         camchain_data: Dictionary containing camchain data
         output_path: Path to the output sensor YAML file
         swap_cameras: Whether to swap cameras
-        template_path: Path to the template sensor YAML file
+        sensor_template: Path to the template sensor YAML file
         divide_intrinsics: Whether to divide intrinsics by 2
         print_debug: Whether to print debug information
         Tbc_path: Path to the Tbc0 or Tbc1 txt file (optional)
@@ -159,8 +160,8 @@ def convert_to_sensor_yaml(camchain_data, output_path, swap_cameras=False,
         T_B_I = None
     
     # Load template sensor.yaml
-    if template_path:
-        sensor_data = read_yaml_safely(template_path)
+    if sensor_template:
+        sensor_data = read_yaml_safely(sensor_template)
     else:
         # Create a minimal sensor.yaml structure if no template is provided
         sensor_data = {'sensor': {'cameras': [], 'imu': {}}}
@@ -293,7 +294,7 @@ def convert_to_sensor_yaml(camchain_data, output_path, swap_cameras=False,
     # Print informative message
     swap_msg = "with camera swap" if swap_cameras else "without camera swap"
     divide_msg = "with divided intrinsics" if divide_intrinsics else "with original intrinsics"
-    template_msg = f"using template from {template_path}" if template_path else "using minimal template"
+    template_msg = f"using template from {sensor_template}" if sensor_template else "using minimal template"
     tbc_msg = ""
     if Tbc_path:
         tbc_type = "Tbc1" if use_Tbc1 else "Tbc0"
@@ -624,14 +625,27 @@ def convert_to_okvis_yaml(camchain_path, Tbc_path, output_path, template_path,
 
 def main():
     args = parse_args()
-    if args.format == 'sensor':
-        # 先加载camchain数据，然后传递给convert_to_sensor_yaml
+    
+    # 生成输出文件路径
+    sensor_output = f"{args.output}_sensor.yaml"
+    okvis_output = f"{args.output}_okvis.yaml"
+    
+    # 根据指定格式进行转换
+    if args.format == 'sensor' or args.format == 'all':
+        # 加载camchain数据，然后传递给convert_to_sensor_yaml
         camchain_data = load_camchain_data(args.camchain)
-        convert_to_sensor_yaml(camchain_data, args.output, args.swap, args.template, 
+        convert_to_sensor_yaml(camchain_data, sensor_output, args.swap, args.sensor_template, 
                               args.divide_intrinsics, Tbc_path=args.Tbc, use_Tbc1=args.use_Tbc1)
-    else:  # args.format == 'okvis'
-        convert_to_okvis_yaml(args.camchain, args.Tbc, args.output, args.okvis_template, 
-                             args.divide_intrinsics, args.swap, args.use_Tbc1)
+        
+    if args.format == 'okvis' or args.format == 'all':
+        if not args.okvis_template and args.format == 'okvis':
+            print("错误: OKVIS格式需要提供模板文件，请使用--okvis_template指定")
+            sys.exit(1)
+        elif args.okvis_template:
+            convert_to_okvis_yaml(args.camchain, args.Tbc, okvis_output, args.okvis_template, 
+                                 args.divide_intrinsics, args.swap, args.use_Tbc1)
+        else:
+            print("警告: 未提供OKVIS模板文件，跳过OKVIS格式转换")
 
 if __name__ == "__main__":
     main() 

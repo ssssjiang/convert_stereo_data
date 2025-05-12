@@ -6,17 +6,20 @@ import argparse
 import os
 import sys
 import re
+from stereo_utils import read_yaml_safely, matrix_to_yaml_list
 
 def parse_args():
     parser = argparse.ArgumentParser(description="将dualcamera_calibration.json转换为sensor和okvis格式的YAML文件")
     parser.add_argument('--input', type=str, required=True, 
                         help="输入的dualcamera_calibration.json文件路径")
     parser.add_argument('--output', type=str, required=True,
-                        help="输出的YAML文件路径")
-    parser.add_argument('--format', type=str, choices=['sensor', 'okvis'], default='sensor',
-                        help="输出格式: 'sensor'为sensor.yaml, 'okvis'为okvis YAML格式")
-    parser.add_argument('--template', type=str, default=None, 
-                        help="模板YAML文件路径（如果需要）")
+                        help="输出的YAML文件路径前缀，会根据模式添加后缀")
+    parser.add_argument('--format', type=str, choices=['sensor', 'okvis', 'all'], default='sensor',
+                        help="输出格式: 'sensor'为sensor.yaml, 'okvis'为okvis YAML格式, 'all'为同时输出两种格式")
+    parser.add_argument('--sensor_template', type=str, default=None, 
+                        help="sensor格式的模板YAML文件路径")
+    parser.add_argument('--okvis_template', type=str, default=None, 
+                        help="okvis格式的模板YAML文件路径")
     return parser.parse_args()
 
 def read_json_file(file_path):
@@ -27,19 +30,6 @@ def read_json_file(file_path):
     except Exception as e:
         print(f"读取JSON文件时出错: {e}")
         sys.exit(1)
-
-def read_yaml_safely(file_path):
-    """安全读取YAML文件并返回数据"""
-    try:
-        with open(file_path, 'r') as file:
-            return yaml.safe_load(file)
-    except Exception as e:
-        print(f"读取YAML文件时出错: {e}")
-        return None
-
-def matrix_to_yaml_list(matrix):
-    """将numpy矩阵转换为YAML列表格式"""
-    return [float(x) for x in matrix.flatten()]
 
 def extrinsic_to_transform_matrix(extrinsic):
     """
@@ -160,7 +150,7 @@ def convert_to_sensor_yaml(json_data, output_path, template_path=None):
                     left_intrinsic['cy'] / 2
                 ]
             },
-            'image_width': width,
+            'image_width': width, 
             'image_height': height
         },
         'T_B_C': {
@@ -540,11 +530,22 @@ def main():
     # 读取JSON数据
     json_data = read_json_file(args.input)
     
+    # 生成输出文件路径
+    sensor_output = f"{args.output}_sensor.yaml"
+    okvis_output = f"{args.output}_okvis.yaml"
+    
     # 根据指定格式进行转换
-    if args.format == 'sensor':
-        convert_to_sensor_yaml(json_data, args.output, args.template)
-    else:  # args.format == 'okvis'
-        convert_to_okvis_yaml(json_data, args.output, args.template)
+    if args.format == 'sensor' or args.format == 'all':
+        convert_to_sensor_yaml(json_data, sensor_output, args.sensor_template)
+        
+    if args.format == 'okvis' or args.format == 'all':
+        if not args.okvis_template and args.format == 'okvis':
+            print("错误: OKVIS格式需要提供模板文件，请使用--okvis_template指定")
+            sys.exit(1)
+        elif args.okvis_template:
+            convert_to_okvis_yaml(json_data, okvis_output, args.okvis_template)
+        else:
+            print("警告: 未提供OKVIS模板文件，跳过OKVIS格式转换")
 
 if __name__ == "__main__":
     main() 
