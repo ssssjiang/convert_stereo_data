@@ -8,6 +8,57 @@ import sys
 import re
 from stereo_utils import read_yaml_safely, matrix_to_yaml_list
 
+class CaseInsensitiveDict(dict):
+    """大小写不敏感的字典类，用于处理键名大小写变化"""
+    
+    def __init__(self, data=None):
+        super(CaseInsensitiveDict, self).__init__()
+        if data:
+            self.update(data)
+    
+    def __getitem__(self, key):
+        if isinstance(key, str):
+            # 首先尝试直接获取
+            try:
+                return super(CaseInsensitiveDict, self).__getitem__(key)
+            except KeyError:
+                # 尝试查找所有可能的大小写变体
+                for k in self.keys():
+                    if isinstance(k, str) and k.lower() == key.lower():
+                        return super(CaseInsensitiveDict, self).__getitem__(k)
+        # 如果上述方法都失败，抛出KeyError异常
+        raise KeyError(key)
+    
+    def __contains__(self, key):
+        if isinstance(key, str):
+            # 直接检查是否存在
+            if super(CaseInsensitiveDict, self).__contains__(key):
+                return True
+            # 检查小写形式是否匹配
+            for k in self.keys():
+                if isinstance(k, str) and k.lower() == key.lower():
+                    return True
+        return False
+    
+    def get(self, key, default=None):
+        try:
+            return self[key]
+        except KeyError:
+            return default
+    
+    def update(self, other=None, **kwargs):
+        if other is not None:
+            for key, value in other.items():
+                # 递归处理嵌套字典
+                if isinstance(value, dict):
+                    value = CaseInsensitiveDict(value)
+                elif isinstance(value, list):
+                    # 递归处理列表中的字典
+                    value = [CaseInsensitiveDict(item) if isinstance(item, dict) else item for item in value]
+                self[key] = value
+        if kwargs:
+            self.update(kwargs)
+
 def parse_args():
     parser = argparse.ArgumentParser(description="将dualcamera_calibration.json转换为sensor和okvis格式的YAML文件")
     parser.add_argument('--input', type=str, required=True, 
@@ -26,7 +77,9 @@ def read_json_file(file_path):
     """读取JSON文件并返回数据"""
     try:
         with open(file_path, 'r') as file:
-            return json.load(file)
+            data = json.load(file)
+            # 将JSON数据转换成大小写不敏感的字典
+            return CaseInsensitiveDict(data)
     except Exception as e:
         print(f"读取JSON文件时出错: {e}")
         sys.exit(1)
@@ -45,44 +98,60 @@ def extrinsic_to_transform_matrix(extrinsic):
     """
     matrix = np.eye(4)
     
-    # 旋转部分
-    matrix[0, 0] = extrinsic['r00']
-    matrix[0, 1] = extrinsic['r01']
-    matrix[0, 2] = extrinsic['r02']
-    matrix[1, 0] = extrinsic['r10']
-    matrix[1, 1] = extrinsic['r11']
-    matrix[1, 2] = extrinsic['r12']
-    matrix[2, 0] = extrinsic['r20']
-    matrix[2, 1] = extrinsic['r21']
-    matrix[2, 2] = extrinsic['r22']
+    # 旋转部分，使用大小写不敏感字典
+    for r_idx in [('r00', 0, 0), ('r01', 0, 1), ('r02', 0, 2),
+                 ('r10', 1, 0), ('r11', 1, 1), ('r12', 1, 2),
+                 ('r20', 2, 0), ('r21', 2, 1), ('r22', 2, 2)]:
+        key, i, j = r_idx
+        if key in extrinsic:
+            matrix[i, j] = extrinsic[key]
     
-    # 平移部分
-    matrix[0, 3] = extrinsic['tx']
-    matrix[1, 3] = extrinsic['ty']
-    matrix[2, 3] = extrinsic['tz']
+    # 平移部分，使用大小写不敏感字典
+    for t_idx in [('tx', 0, 3), ('ty', 1, 3), ('tz', 2, 3)]:
+        key, i, j = t_idx
+        if key in extrinsic:
+            matrix[i, j] = extrinsic[key]
     
     return matrix
 
 def toi_to_transform_matrix(toi):
-    """从toi数据创建4x4变换矩阵"""
-    matrix = np.array(toi['T']).reshape(4, 4)
-    return matrix
+    """从toi数据创建4x4变换矩阵，支持12元素或16元素的T数组"""
+    if 't' in toi:  # 大小写不敏感字典会自动处理't'和'T'
+        t_data = toi['t']
+        # 检查T数组的长度
+        if len(t_data) == 16:
+            # 已经是4x4矩阵，直接reshape
+            matrix = np.array(t_data).reshape(4, 4)
+        elif len(t_data) == 12:
+            # 只有3x4矩阵，需要补充最后一行[0,0,0,1]
+            matrix = np.eye(4)
+            # 填充前3行
+            matrix[:3, :] = np.array(t_data).reshape(3, 4)
+            print(f"注意: TOI数据中的T矩阵只有12个元素，已自动补充为4x4矩阵")
+        else:
+            print(f"警告: TOI数据中的T矩阵有{len(t_data)}个元素，既不是12个也不是16个，使用单位矩阵")
+            return np.eye(4)
+        return matrix
+    else:
+        print("警告: TOI数据中未找到T矩阵，使用单位矩阵")
+        return np.eye(4)
 
 def process_distortion_params(distortion):
     """处理畸变参数，返回radtan8格式的系数列表"""
     # 对于radtan8模型，参数顺序为: [k1, k2, p1, p2, k3, k4, k5, k6]
     # JSON中的顺序为: [k1, k2, k3, k4, k5, k6, p1, p2]
     # 需要重新排序
-    return [
-        distortion['k1'],
-        distortion['k2'],
-        distortion['p1'],
-        distortion['p2'],
-        distortion['k3'],
-        distortion['k4'],
-        distortion['k5'],
-        distortion['k6']
-    ]
+    keys = ['k1', 'k2', 'p1', 'p2', 'k3', 'k4', 'k5', 'k6']
+    result = []
+    
+    for key in keys:
+        if key in distortion:
+            result.append(distortion[key])
+        else:
+            print(f"警告: 在畸变参数中未找到{key}，使用0.0作为默认值")
+            result.append(0.0)
+    
+    return result
 
 def convert_to_sensor_yaml(json_data, output_path, template_path=None):
     """将JSON数据转换为sensor.yaml格式"""
