@@ -148,16 +148,13 @@ def convert_to_sensor_yaml(camchain_data, output_path, swap_cameras=False,
             print("Calculated T_B_I from T_B_C0 and T_cam0_imu:")
             print(T_B_I)
     else:
-        # 如果没有提供 Tbc 文件，则使用原始逻辑设置转换矩阵
-        if swap_cameras:
-            T_B_C0 = identity_matrix
-            T_B_C1 = T_cn_cnm1
-        else:
-            T_B_C0 = T_cn_cnm1  # T_c1_c0
-            T_B_C1 = identity_matrix
-        
-        # 没有提供 Tbc 文件时，不设置 T_B_I
-        T_B_I = None
+        # 如果没有提供 Tbc 文件，则 T_B_C0 对应 cam0 数据，T_B_C1 对应 cam1 数据。
+        # 遵循 cam1 为参考的约定 (其 T_B_C 为单位阵)，cam0 的 T_B_C 为 T_C1_C0 (即 T_cn_cnm1)。
+        # process_sensor_cameras 将根据其 swap_cameras 参数处理最终的分配。
+        print("No Tbc file provided. Setting T_B_C based on cam1 as reference: T_B_C0=T_cn_cnm1, T_B_C1=identity.")
+        T_B_C0 = T_cn_cnm1      # For cam0 data (from camchain)
+        T_B_C1 = identity_matrix # For cam1 data (from camchain)
+        T_B_I = None             # 没有提供 Tbc 文件时，不设置 T_B_I
     
     # Load template sensor.yaml
     if sensor_template:
@@ -172,7 +169,7 @@ def convert_to_sensor_yaml(camchain_data, output_path, swap_cameras=False,
     # Process cameras and update sensor data
     sensor_data, model_info = process_sensor_cameras(
         sensor_data, cam0, cam1, swap_cameras, divide_intrinsics,
-        T_B_C0, T_B_C1, identity_matrix, update_resolution
+        T_B_C0, T_B_C1, update_resolution
     )
     
     # 如果有 T_B_I，更新传感器数据中的 IMU 部分

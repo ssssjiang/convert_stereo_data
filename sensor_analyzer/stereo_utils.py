@@ -184,7 +184,7 @@ def update_camera_params(camera, intrinsics, distortion_type, distortion_params)
     return camera
 
 def process_sensor_cameras(sensor_data, cam0_data, cam1_data, swap_cameras, divide_intrinsics, 
-                           T_B_C0=None, T_B_C1=None, identity_matrix=None, update_resolution=True):
+                           T_B_C0=None, T_B_C1=None, update_resolution=True):
     """Process and update camera parameters in sensor.yaml.
     
     Args:
@@ -193,16 +193,15 @@ def process_sensor_cameras(sensor_data, cam0_data, cam1_data, swap_cameras, divi
         cam1_data: Cam1 data from camchain
         swap_cameras: Whether to swap cameras
         divide_intrinsics: Whether to divide intrinsics
-        T_B_C0: Transformation matrix for camera0 (optional)
-        T_B_C1: Transformation matrix for camera1 (optional)
-        identity_matrix: Identity matrix (optional)
+        T_B_C0: Transformation matrix for cam0_data (original data for first camera)
+        T_B_C1: Transformation matrix for cam1_data (original data for second camera)
         update_resolution: Whether to update resolution (default: True)
         
     Returns:
-        Updated sensor_data dictionary
+        Updated sensor_data dictionary and model_info
     """
     if 'cameras' not in sensor_data['sensor'] or len(sensor_data['sensor']['cameras']) < 1:
-        return sensor_data
+        return sensor_data, {} # Return empty model_info
     
     # Get camera objects
     camera0 = sensor_data['sensor']['cameras'][0]
@@ -220,32 +219,29 @@ def process_sensor_cameras(sensor_data, cam0_data, cam1_data, swap_cameras, divi
     has_cam0_resolution = 'resolution' in cam0_data
     has_cam1_resolution = 'resolution' in cam1_data
     
-    # Transformation matrices to use (if provided)
-    T_B_C_for_camera0 = None
-    T_B_C_for_camera1 = None
+    # These will store the T_B_C to be applied to sensor_data.cameras[0] and sensor_data.cameras[1]
+    final_T_B_C_for_sensor_camera0 = None
+    final_T_B_C_for_sensor_camera1 = None
     
     if swap_cameras and camera1 is not None:
-        # Update camera parameters with swapped data
+        # sensor_data.cameras[0] (camera0 object) gets cam1_data parameters
         camera0 = update_camera_params(camera0, cam1_intrinsics, cam1_distortion_type, cam1_distortion)
+        # sensor_data.cameras[1] (camera1 object) gets cam0_data parameters
         camera1 = update_camera_params(camera1, cam0_intrinsics, cam0_distortion_type, cam0_distortion)
         
-        # 根据 update_resolution 参数决定是否更新分辨率
         if update_resolution:
-            # Set resolution if available from camchain
-            if has_cam1_resolution:
+            if has_cam1_resolution: # cam1_data's resolution for sensor_data.cameras[0]
                 camera0 = process_camera_resolution(camera0, cam1_data['resolution'], divide_intrinsics)
             elif divide_intrinsics and 'camera' in camera0 and 'image_width' in camera0['camera'] and 'image_height' in camera0['camera']:
-                # Only scale if no camchain resolution is available
                 width = camera0['camera']['image_width']
                 height = camera0['camera']['image_height']
                 camera0['camera']['image_width'] = width // 2
                 camera0['camera']['image_height'] = height // 2
                 print(f"Camera0 resolution scaled from template to {width//2}x{height//2}")
             
-            if has_cam0_resolution:
+            if has_cam0_resolution: # cam0_data's resolution for sensor_data.cameras[1]
                 camera1 = process_camera_resolution(camera1, cam0_data['resolution'], divide_intrinsics)
             elif divide_intrinsics and camera1 is not None and 'camera' in camera1 and 'image_width' in camera1['camera'] and 'image_height' in camera1['camera']:
-                # Only scale if no camchain resolution is available
                 width = camera1['camera']['image_width']
                 height = camera1['camera']['image_height']
                 camera1['camera']['image_width'] = width // 2
@@ -254,38 +250,31 @@ def process_sensor_cameras(sensor_data, cam0_data, cam1_data, swap_cameras, divi
         else:
             print("保持模板中的图像分辨率不变")
         
-        # Set transformation matrices if provided
-        if T_B_C0 is not None and T_B_C1 is not None:
-            T_B_C_for_camera0 = T_B_C1
-            T_B_C_for_camera1 = T_B_C0
-        elif identity_matrix is not None:
-            # Special case for camchain format
-            T_B_C_for_camera0 = identity_matrix
-            
+        # Assign T_B_C: sensor_data.cameras[0] gets T_B_C1 (from cam1_data), sensor_data.cameras[1] gets T_B_C0 (from cam0_data)
+        final_T_B_C_for_sensor_camera0 = T_B_C1
+        final_T_B_C_for_sensor_camera1 = T_B_C0
+        
         print("Swapping cameras: camera0 gets cam1 data, camera1 gets cam0 data")
     else:
-        # Update camera parameters without swapping
+        # sensor_data.cameras[0] (camera0 object) gets cam0_data parameters
         camera0 = update_camera_params(camera0, cam0_intrinsics, cam0_distortion_type, cam0_distortion)
         if camera1 is not None:
+            # sensor_data.cameras[1] (camera1 object) gets cam1_data parameters
             camera1 = update_camera_params(camera1, cam1_intrinsics, cam1_distortion_type, cam1_distortion)
         
-        # 根据 update_resolution 参数决定是否更新分辨率
         if update_resolution:
-            # Set resolution if available from camchain
-            if has_cam0_resolution:
+            if has_cam0_resolution: # cam0_data's resolution for sensor_data.cameras[0]
                 camera0 = process_camera_resolution(camera0, cam0_data['resolution'], divide_intrinsics)
             elif divide_intrinsics and 'camera' in camera0 and 'image_width' in camera0['camera'] and 'image_height' in camera0['camera']:
-                # Only scale if no camchain resolution is available
                 width = camera0['camera']['image_width']
                 height = camera0['camera']['image_height']
                 camera0['camera']['image_width'] = width // 2
                 camera0['camera']['image_height'] = height // 2
                 print(f"Camera0 resolution scaled from template to {width//2}x{height//2}")
             
-            if has_cam1_resolution and camera1 is not None:
+            if has_cam1_resolution and camera1 is not None: # cam1_data's resolution for sensor_data.cameras[1]
                 camera1 = process_camera_resolution(camera1, cam1_data['resolution'], divide_intrinsics)
             elif divide_intrinsics and camera1 is not None and 'camera' in camera1 and 'image_width' in camera1['camera'] and 'image_height' in camera1['camera']:
-                # Only scale if no camchain resolution is available
                 width = camera1['camera']['image_width']
                 height = camera1['camera']['image_height']
                 camera1['camera']['image_width'] = width // 2
@@ -293,20 +282,19 @@ def process_sensor_cameras(sensor_data, cam0_data, cam1_data, swap_cameras, divi
                 print(f"Camera1 resolution scaled from template to {width//2}x{height//2}")
         else:
             print("保持模板中的图像分辨率不变")
-        
-        # Set transformation matrices if provided
-        if T_B_C0 is not None and T_B_C1 is not None:
-            T_B_C_for_camera0 = T_B_C0
-            T_B_C_for_camera1 = T_B_C1
+
+        # Assign T_B_C: sensor_data.cameras[0] gets T_B_C0 (from cam0_data), sensor_data.cameras[1] gets T_B_C1 (from cam1_data)
+        final_T_B_C_for_sensor_camera0 = T_B_C0
+        final_T_B_C_for_sensor_camera1 = T_B_C1
         
         print("Not swapping cameras: camera0 gets cam0 data, camera1 gets cam1 data")
     
-    # Update transformation matrices if provided
-    if T_B_C_for_camera0 is not None:
-        camera0['T_B_C']['data'] = matrix_to_yaml_list(T_B_C_for_camera0)
+    # Update transformation matrices in sensor_data camera objects
+    if final_T_B_C_for_sensor_camera0 is not None:
+        camera0['T_B_C']['data'] = matrix_to_yaml_list(final_T_B_C_for_sensor_camera0)
     
-    if T_B_C_for_camera1 is not None and camera1 is not None:
-        camera1['T_B_C']['data'] = matrix_to_yaml_list(T_B_C_for_camera1)
+    if final_T_B_C_for_sensor_camera1 is not None and camera1 is not None:
+        camera1['T_B_C']['data'] = matrix_to_yaml_list(final_T_B_C_for_sensor_camera1)
     
     # Return updated distortion model information for logging
     model_info = {

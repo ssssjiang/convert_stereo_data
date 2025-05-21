@@ -191,6 +191,8 @@ def update_sensor_yaml(input_path, output_path, swap_cameras=False, template_pat
     sensor_data = read_yaml_safely(template_file)
     
     # Create camchain-style camera data for process_sensor_cameras function
+    # For stereo.yml, cam0 is considered the reference (identity T_B_C)
+    # and cam1's T_B_C is relative to cam0.
     cam0_data = {
         'intrinsics': [
             float(M1_processed[0, 0]),  # fx
@@ -213,23 +215,23 @@ def update_sensor_yaml(input_path, output_path, swap_cameras=False, template_pat
         'distortion_model': 'radtan8'  # Default for OpenCV stereo
     }
     
-    # Set appropriate transformation matrices based on swap setting
-    if swap_cameras:
-        T_B_C0 = identity_matrix
-        T_B_C1 = T_B_C_from_stereo
-    else:
-        T_B_C0 = T_B_C_from_stereo
-        T_B_C1 = identity_matrix
+    # T_B_C0 corresponds to cam0_data (M1, D1), which is the reference camera, so its T_B_C is identity.
+    # T_B_C1 corresponds to cam1_data (M2, D2), its T_B_C is T_C0_C1 (T_B_C_from_stereo).
+    # The process_sensor_cameras function will handle swapping these if args.swap is true.
+    T_B_C0_for_cam0_data = T_B_C_from_stereo
+    T_B_C1_for_cam1_data = identity_matrix
     
     # 对于非 camchain 模式：
-    # 1. 我们不修改分辨率，保持与模板一致
-    # 2. 已经处理过内参，不需要再次除以2
-    update_resolution = False
+    # 1. 我们不修改分辨率，保持与模板一致 (update_resolution = False)
+    # 2. intrinsics已经在此函数开始处根据 divide_intrinsics (命令行参数) 处理过，
+    #    所以传递给 process_sensor_cameras 的 divide_intrinsics 参数应为 False，以避免重复处理。
+    update_resolution_in_process_func = False
+    divide_intrinsics_in_process_func = False 
     
     # Process camera parameters 
     sensor_data, model_info = process_sensor_cameras(
-        sensor_data, cam0_data, cam1_data, swap_cameras, False,
-        T_B_C0, T_B_C1, identity_matrix, update_resolution
+        sensor_data, cam0_data, cam1_data, swap_cameras, divide_intrinsics_in_process_func, # Pass False for divide_intrinsics here
+        T_B_C0_for_cam0_data, T_B_C1_for_cam1_data, update_resolution_in_process_func
     )
     
     # 使用美观易读的格式写入YAML文件
@@ -253,28 +255,27 @@ def update_sensor_yaml_from_camchain(input_path, output_path, swap_cameras=False
     if 'T_cn_cnm1' not in cam1:
         raise ValueError("T_cn_cnm1 not found in cam1 data")
     
-    T_cn_cnm1 = np.array(cam1['T_cn_cnm1'])
+    T_C1_C0_from_camchain = np.array(cam1['T_cn_cnm1']) # This is T_cam1_cam0
     identity_matrix = np.eye(4)
     
     # Load the template YAML file safely
     template_file = template_path if template_path else output_path
     sensor_data = read_yaml_safely(template_file)
     
-    # Set appropriate transformation matrices based on swap setting
-    if swap_cameras:
-        T_B_C0 = identity_matrix
-        T_B_C1 = T_cn_cnm1
-    else:
-        T_B_C0 = T_cn_cnm1
-        T_B_C1 = identity_matrix
+    # T_B_C0 corresponds to cam0_data (camchain's cam0). In camchain, cam0 is the reference, so its T_B_C is identity.
+    # T_B_C1 corresponds to cam1_data (camchain's cam1). Its T_B_C is T_C1_C0_from_camchain.
+    # The process_sensor_cameras function will handle swapping these if args.swap is true.
+    T_B_C0_for_cam0_data = T_C1_C0_from_camchain
+    T_B_C1_for_cam1_data = identity_matrix
     
     # 对于 camchain 模式，我们允许更新分辨率（如果有）
-    update_resolution = True
+    update_resolution_in_process_func = True
+    # divide_intrinsics (来自命令行) 直接传递给 process_sensor_cameras
     
     # Process camera parameters
     sensor_data, model_info = process_sensor_cameras(
-        sensor_data, cam0, cam1, swap_cameras, divide_intrinsics,
-        T_B_C0, T_B_C1, identity_matrix, update_resolution
+        sensor_data, cam0, cam1, swap_cameras, divide_intrinsics, # divide_intrinsics is passed directly
+        T_B_C0_for_cam0_data, T_B_C1_for_cam1_data, update_resolution_in_process_func
     )
     
     # 使用美观易读的格式写入YAML文件
