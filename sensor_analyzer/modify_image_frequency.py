@@ -95,23 +95,40 @@ def modify_image_delay(file_path, new_delay):
     # 尝试转换为浮点数
     try:
         float_delay = float(new_delay)
-        formatted_delay = f"{float_delay}"
+        
+        # 决定最终写入的字符串格式
+        if float_delay == 0.0:
+            final_value_str = "0.0"  # 直接为0.0指定输出
+        else:
+            # 对于非0.0的值，使用之前的精度和去除逻辑
+            temp_formatted = f"{float_delay:.17f}"
+            stripped_val = temp_formatted.rstrip('0').rstrip('.')
+            # 处理 stripping 可能产生空字符串或无效格式的情况 (尽管对于非零值不太可能)
+            if stripped_val == "" or stripped_val == "-" or stripped_val == "." or stripped_val == "-.":
+                final_value_str = temp_formatted # 异常情况回退到完整精度格式
+            else:
+                final_value_str = stripped_val
         
         # 查找image_delay参数
-        pattern = r'(image_delay\s*:\s*)(-?[0-9.]+)'
+        # 使用更健壮的正则匹配浮点数，包括科学计数法
+        pattern = r'(image_delay\s*:\s*)(-?\d+\.?\d*(?:[eE][-+]?\d+)?)'
         match = re.search(pattern, content)
         
         if match:
             # 找到image_delay参数，直接替换
-            old_delay = float(match.group(2))
-            new_content = re.sub(pattern, f'\\1{formatted_delay}', content)
+            old_delay_str = match.group(2)
+            new_content = re.sub(pattern, rf'\g<1>{final_value_str}', content)
             
             # 写回文件
-            with open(file_path, 'w') as file:
-                file.write(new_content)
+            if content != new_content:
+                with open(file_path, 'w') as file:
+                    file.write(new_content)
+            else:
+                # 如果内容没有变化，也打印信息，表示值可能已经是目标值
+                pass # 之前这里没有打印，可以考虑添加，但为了最小化更改，暂时保留
                 
             print(f"修改文件: {file_path}")
-            print(f"  image_delay: {old_delay} -> {formatted_delay}")
+            print(f"  image_delay: {old_delay_str} -> {final_value_str}")
             return True
         else:
             # 没有找到image_delay参数，尝试添加
@@ -122,28 +139,20 @@ def modify_image_delay(file_path, new_delay):
                     camera_params_start = i
                     break
             
-            # 查找合适的位置添加image_delay
             image_delay_added = False
             for i in range(camera_params_start + 1, len(lines)):
                 if 'sync_cameras:' in lines[i]:
-                    # 获取缩进
                     indent = re.match(r'(\s*)', lines[i]).group(1)
-                    # 在sync_cameras后面添加image_delay
-                    lines.insert(i + 1, f"{indent}image_delay: {formatted_delay}")
+                    lines.insert(i + 1, f"{indent}image_delay: {final_value_str}")
                     image_delay_added = True
                     break
             
             if image_delay_added:
-                # 写回文件
                 with open(file_path, 'w') as file:
                     file.write('\n'.join(lines))
-                    
                 print(f"修改文件: {file_path}")
-                print(f"  添加image_delay: {formatted_delay}")
+                print(f"  添加image_delay: {final_value_str}")
                 return True
-            else:
-                print(f"警告: 无法在文件 {file_path} 中找到适合添加 image_delay 的位置")
-                return False
     except ValueError:
         print(f"错误: 提供的delay值 '{new_delay}' 不是有效的数值")
         return False
@@ -172,7 +181,7 @@ def modify_wheel_delay(file_path, new_delay):
         if match:
             # 找到wheel_delay参数，直接替换
             old_delay = float(match.group(2))
-            new_content = re.sub(pattern, f'\\1{formatted_delay}', content)
+            new_content = re.sub(pattern, rf'\g<1>{formatted_delay}', content)
             
             # 写回文件
             with open(file_path, 'w') as file:
@@ -240,7 +249,7 @@ def modify_sigma_omega(file_path, new_value=100.0):
         if match:
             # 找到sigma_omega参数，直接替换
             old_value = match.group(2)
-            new_content = re.sub(pattern, f'\\1{formatted_value}', content)
+            new_content = re.sub(pattern, rf'\g<1>{formatted_value}', content)
             
             # 写回文件
             with open(file_path, 'w') as file:
@@ -335,7 +344,7 @@ def modify_yaml_file(file_path, new_frequency=None, use_only_main_camera=None, n
                 if match:
                     # 找到正常的image_frequency参数，直接替换
                     old_frequency = float(match.group(2))
-                    new_content = re.sub(pattern, f'\\1{formatted_frequency}', content)
+                    new_content = re.sub(pattern, rf'\g<1>{formatted_frequency}', content)
                     
                     # 写回文件
                     with open(file_path, 'w') as file:
