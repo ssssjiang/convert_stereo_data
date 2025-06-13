@@ -44,7 +44,7 @@ def merge_dicts(target, source, file_path="未知文件"):
             merge_dicts(target[key], value, file_path)
         # 如果键已存在且不是字典，保留原值，不覆盖
 
-def modify_specific_parameters_in_dict(yaml_data, file_path, new_frequency=None, use_only_main_camera=None, 
+def modify_specific_parameters_in_dict(yaml_data, file_path, new_frequency=None, use_only_main_camera=None,
                                      new_image_delay=None, new_wheel_delay=None, new_sigma_omega=None,
                                      new_sigma_v=None, new_unobs_info=None,
                                      detection_threshold=None, matching_threshold=None, max_num_keypoints=None,
@@ -80,7 +80,7 @@ def modify_specific_parameters_in_dict(yaml_data, file_path, new_frequency=None,
                 print(f"修改文件: {file_path}")
                 print(f"  添加use_only_main_camera: {use_only_main_camera}")
                 modified = True
-                
+
         # 修改detection_threshold参数
         if detection_threshold is not None:
             if 'detection_threshold' in yaml_data['frontend_parameters']:
@@ -95,7 +95,7 @@ def modify_specific_parameters_in_dict(yaml_data, file_path, new_frequency=None,
                 print(f"修改文件: {file_path}")
                 print(f"  添加detection_threshold: {detection_threshold}")
                 modified = True
-                
+
         # 修改matching_threshold参数
         if matching_threshold is not None:
             if 'matching_threshold' in yaml_data['frontend_parameters']:
@@ -110,7 +110,7 @@ def modify_specific_parameters_in_dict(yaml_data, file_path, new_frequency=None,
                 print(f"修改文件: {file_path}")
                 print(f"  添加matching_threshold: {matching_threshold}")
                 modified = True
-                
+
         # 修改max_num_keypoints参数
         if max_num_keypoints is not None:
             if 'max_num_keypoints' in yaml_data['frontend_parameters']:
@@ -138,7 +138,7 @@ def modify_specific_parameters_in_dict(yaml_data, file_path, new_frequency=None,
                 formatted_delay = temp.rstrip('0').rstrip('.')
                 if not formatted_delay or formatted_delay == "-":
                     formatted_delay = temp
-            
+
             yaml_data['camera_parameters']['image_delay'] = float(formatted_delay)
             print(f"修改文件: {file_path}")
             print(f"  image_delay: {old_delay} -> {formatted_delay}")
@@ -152,7 +152,7 @@ def modify_specific_parameters_in_dict(yaml_data, file_path, new_frequency=None,
                 formatted_delay = temp.rstrip('0').rstrip('.')
                 if not formatted_delay or formatted_delay == "-":
                     formatted_delay = temp
-                    
+
             yaml_data['camera_parameters']['image_delay'] = float(formatted_delay)
             print(f"修改文件: {file_path}")
             print(f"  添加image_delay: {formatted_delay}")
@@ -187,7 +187,7 @@ def modify_specific_parameters_in_dict(yaml_data, file_path, new_frequency=None,
             print(f"修改文件: {file_path}")
             print(f"  添加sigma_omega: {new_sigma_omega}")
             modified = True
-    
+
     # 修改sigma_v参数
     if new_sigma_v is not None and 'wheel_encoder_parameters' in yaml_data:
         if 'sigma_v' in yaml_data['wheel_encoder_parameters']:
@@ -202,7 +202,7 @@ def modify_specific_parameters_in_dict(yaml_data, file_path, new_frequency=None,
             print(f"修改文件: {file_path}")
             print(f"  添加sigma_v: {new_sigma_v}")
             modified = True
-            
+
     # 修改unobs_info参数
     if new_unobs_info is not None and 'wheel_encoder_parameters' in yaml_data:
         if 'unobs_info' in yaml_data['wheel_encoder_parameters']:
@@ -217,7 +217,7 @@ def modify_specific_parameters_in_dict(yaml_data, file_path, new_frequency=None,
             print(f"修改文件: {file_path}")
             print(f"  添加unobs_info: {new_unobs_info}")
             modified = True
-    
+
     # 修改enable_debug_recording参数
     if enable_debug_recording is not None and 'output_parameters' in yaml_data:
         if 'enable_debug_recording' in yaml_data['output_parameters']:
@@ -232,7 +232,7 @@ def modify_specific_parameters_in_dict(yaml_data, file_path, new_frequency=None,
             print(f"修改文件: {file_path}")
             print(f"  添加enable_debug_recording: {enable_debug_recording}")
             modified = True
-            
+
     # 修改estimator_parameters部分的参数
     if 'estimator_parameters' in yaml_data:
         # 修改use_async_processing参数
@@ -249,7 +249,7 @@ def modify_specific_parameters_in_dict(yaml_data, file_path, new_frequency=None,
                 print(f"修改文件: {file_path}")
                 print(f"  添加use_async_processing: {use_async_processing}")
                 modified = True
-                
+
         # 修改online_mode参数
         if online_mode is not None:
             if 'online_mode' in yaml_data['estimator_parameters']:
@@ -264,7 +264,7 @@ def modify_specific_parameters_in_dict(yaml_data, file_path, new_frequency=None,
                 print(f"修改文件: {file_path}")
                 print(f"  添加online_mode: {online_mode}")
                 modified = True
-                
+
         # 修改max_batch_size参数
         if max_batch_size is not None:
             if 'max_batch_size' in yaml_data['estimator_parameters']:
@@ -279,13 +279,13 @@ def modify_specific_parameters_in_dict(yaml_data, file_path, new_frequency=None,
                 print(f"修改文件: {file_path}")
                 print(f"  添加max_batch_size: {max_batch_size}")
                 modified = True
-            
+
     return modified
 
-def modify_yaml_file(file_path, template_data=None, new_frequency=None, use_only_main_camera=None, 
-                        new_image_delay=None, new_wheel_delay=None, new_sigma_omega=None, 
+def modify_yaml_file(file_path, template_data=None, new_frequency=None, use_only_main_camera=None,
+                        new_image_delay=None, new_wheel_delay=None, new_sigma_omega=None,
                         new_sigma_v=None, new_unobs_info=None,
-                        detection_threshold=None, matching_threshold=None, max_num_keypoints=None, 
+                        detection_threshold=None, matching_threshold=None, max_num_keypoints=None,
                         enable_debug_recording=None, use_async_processing=None, online_mode=None,
                         max_batch_size=None, debug=False):
     """修改YAML文件，可以从模板添加缺失参数，并更新指定的参数值"""
@@ -314,7 +314,7 @@ def modify_yaml_file(file_path, template_data=None, new_frequency=None, use_only
                 processed_first_line = lines[0].lstrip('\ufeff')
             else:
                 processed_first_line = lines[0]
-            
+
             if debug:
                 print(f"DEBUG: 文件 {file_path}, 第一行 (BOM移除后): '{processed_first_line.strip()}'")
 
@@ -323,17 +323,17 @@ def modify_yaml_file(file_path, template_data=None, new_frequency=None, use_only
             if match_directive:
                 yaml_version = match_directive.group(1)
                 line_ending = '\r\n' if processed_first_line.endswith('\r\n') else '\n'
-                
+
                 # 使用OpenCV兼容的YAML指令格式 %YAML:1.0
                 corrected_first_line_content = f"%YAML:{yaml_version}"
                 corrected_full_first_line = f"{corrected_first_line_content}{line_ending}"
-                
+
                 if debug:
                     print(f"文件 {file_path}: 保留OpenCV兼容的YAML指令 '{corrected_first_line_content}'")
-                
+
                 # 更新第一行
-                lines[0] = corrected_full_first_line 
-                
+                lines[0] = corrected_full_first_line
+
                 # 添加文档开始标记 '---'
                 if len(lines) > 1:
                     indent_match = re.match(r'^(\s*)', lines[1])
@@ -343,56 +343,56 @@ def modify_yaml_file(file_path, template_data=None, new_frequency=None, use_only
                         lines.insert(1, f"{indent}---{line_ending}")
                         if debug:
                             print(f"文件 {file_path}: 添加文档开始标记 '---'")
-                
+
                 raw_content = "".join(lines)
                 corrected_yaml_directive = corrected_first_line_content
-        
+
         # 解析YAML内容 - 处理带有文档分隔符的YAML
         yaml_content = raw_content
         if raw_content and raw_content.startswith('%YAML:'):
             # 临时替换YAML指令为PyYAML兼容格式，仅用于解析
             yaml_content = re.sub(r'^%YAML:(\d+\.\d+)', r'%YAML \1', raw_content, count=1)
-        
+
         try:
             # 使用safe_load_all来处理带有文档分隔符的YAML
             docs = list(yaml.safe_load_all(yaml_content))
             # 取第一个文档（如果有多个）
             current_yaml_data = docs[0] if docs else {}
-            
+
             if debug and len(docs) > 1:
                 print(f"文件 {file_path}: 包含 {len(docs)} 个YAML文档，使用第一个文档")
-                
+
         except yaml.YAMLError as e:
             print(f"警告: 解析YAML文件 {file_path} 失败: {e}。跳过此文件。")
             return False
-    
+
     # 从模板合并参数
     data_changed = False
     if template_data:
         if debug:
             print(f"正在为 {file_path} 合并模板参数...")
-        
+
         # 合并前复制一份数据用于比较
         import copy
         original_data = copy.deepcopy(current_yaml_data)
-        
+
         # 合并模板数据
         merge_dicts(current_yaml_data, template_data, file_path)
-        
+
         # 检查是否有变化
         data_changed = current_yaml_data != original_data
-        
+
         if debug:
             print(f"模板参数合并完成，{'有' if data_changed else '无'}变化")
-            
+
     # 修改指定的特定参数
     params_modified = modify_specific_parameters_in_dict(
-        current_yaml_data, 
-        file_path, 
-        new_frequency, 
-        use_only_main_camera, 
-        new_image_delay, 
-        new_wheel_delay, 
+        current_yaml_data,
+        file_path,
+        new_frequency,
+        use_only_main_camera,
+        new_image_delay,
+        new_wheel_delay,
         new_sigma_omega,
         new_sigma_v,
         new_unobs_info,
@@ -429,7 +429,7 @@ def modify_yaml_file(file_path, template_data=None, new_frequency=None, use_only
                 # 写入YAML数据
                 if current_yaml_data:
                     write_yaml_with_template_format(file, current_yaml_data)
-            
+
             if debug:
                 reasons = []
                 if corrected_yaml_directive: reasons.append("YAML指令已修正为OpenCV兼容格式")
@@ -441,12 +441,12 @@ def modify_yaml_file(file_path, template_data=None, new_frequency=None, use_only
             return False
     elif debug:
         print(f"文件 {file_path} 无需修改。")
-        
+
     return True
 
 def write_yaml_with_template_format(file, data):
     """使用直接写入的方式将数据写入YAML文件，保持与模板相同的格式
-    
+
     Args:
         file: 要写入的文件对象
         data: YAML数据字典
@@ -457,39 +457,39 @@ def write_yaml_with_template_format(file, data):
         for i, camera in enumerate(data['cameras']):
             # 写入相机定义开始
             file.write(f"     - {{T_SC:\n")
-            
+
             # 写入T_SC矩阵，格式化为4行4列
             T_SC = camera['T_SC']
             file.write(f"        [{T_SC[0]:.8f}, {T_SC[1]:.8f}, {T_SC[2]:.8f}, {T_SC[3]:.8f},\n")
             file.write(f"        {T_SC[4]:.8f}, {T_SC[5]:.8f}, {T_SC[6]:.8f}, {T_SC[7]:.8f},\n")
             file.write(f"        {T_SC[8]:.8f}, {T_SC[9]:.8f}, {T_SC[10]:.8f}, {T_SC[11]:.8f},\n")
             file.write(f"        {T_SC[12]:.8f}, {T_SC[13]:.8f}, {T_SC[14]:.8f}, {T_SC[15]:.8f}],\n")
-            
+
             # 写入image_dimension
             file.write(f"        image_dimension: [{camera['image_dimension'][0]}, {camera['image_dimension'][1]}],\n")
-            
+
             # 写入distortion_coefficients
             _write_distortion_coefficients(file, camera['distortion_coefficients'])
-            
+
             # 写入其他相机参数
             file.write(f"        distortion_type: {camera['distortion_type']},\n")
             file.write(f"        focal_length: [{camera['focal_length'][0]:.14f}, {camera['focal_length'][1]:.14f}],\n")
             file.write(f"        principal_point: [{camera['principal_point'][0]:.14f}, {camera['principal_point'][1]:.14f}],\n")
-            
+
             # 写入camera_type
             camera_type = camera.get('camera_type', 'gray')
             file.write(f"        camera_type: {camera_type}, #gray, rgb, gray+depth, rgb+depth\n")
-            
+
             # 写入slam_use，并添加注释
             slam_use = camera.get('slam_use', 'okvis')
             is_first_camera = (i == 0)
             comment = " #none, okvis, okvis-depth, okvis-virtual" if is_first_camera else ""
             file.write(f"        slam_use: {slam_use}}}{comment}\n")
-            
+
             # 在第一个相机后不添加空行，在第二个相机后添加空行
             if not is_first_camera:
                 file.write("\n")
-    
+
     # 写入其他参数部分
     _write_parameter_sections(file, data)
 
@@ -518,7 +518,7 @@ def _write_parameter_sections(file, data):
         if section in data:
             file.write(f"\n# {section.replace('_', ' ')}\n")
             file.write(f"{section}:\n")
-            
+
             # 特殊处理wheel_encoder_parameters中的T_BS
             if section == "wheel_encoder_parameters" and "T_BS" in data[section]:
                 _write_wheel_encoder_section(file, data[section])
@@ -535,7 +535,7 @@ def _write_wheel_encoder_section(file, wheel_data):
     for key, value in wheel_data.items():
         if key != "T_BS":
             file.write(f"    {key}: {value}\n")
-            
+
     # 单独写入T_BS矩阵
     T_BS = wheel_data["T_BS"]
     file.write(f"    # transform Body-Sensor (WheelEncoder)\n")
@@ -554,7 +554,7 @@ def _write_imu_section(file, imu_data):
                 file.write(f"    {key}: [ {', '.join([str(x) for x in value])} ]\n")
             else:
                 file.write(f"    {key}: {value}\n")
-                
+
     # 单独写入T_BS矩阵
     T_BS = imu_data["T_BS"]
     file.write(f"    # transform Body-Sensor (IMU)\n")
@@ -641,7 +641,7 @@ def main():
     print("2. 命令行参数(如--sigma-omega)将会覆盖目标文件中对应的参数值")
     print("3. 输出YAML文件将保持与模板相同的美观格式")
     print("4. 将使用OpenCV兼容的YAML指令格式(%YAML:1.0)\n")
-    
+
     # 加载模板文件
     template_data = None
     if args.template_file:
@@ -652,7 +652,7 @@ def main():
                 # 读取模板文件内容
                 with open(args.template_file, 'r', encoding='utf-8') as tf:
                     template_content = tf.read()
-                
+
                 # 处理模板文件YAML指令
                 template_yaml_content = template_content
                 if template_content.startswith('%YAML:'):
@@ -660,15 +660,15 @@ def main():
                     template_yaml_content = re.sub(r'^%YAML:(\d+\.\d+)', r'%YAML \1', template_content, count=1)
                     if args.debug:
                         print(f"模板文件: 临时将YAML指令转换为PyYAML兼容格式进行解析")
-                
+
                 # 解析模板YAML内容，使用safe_load_all处理可能的多文档YAML
                 try:
                     docs = list(yaml.safe_load_all(template_yaml_content))
                     template_data = docs[0] if docs else {}
-                    
+
                     if args.debug and len(docs) > 1:
                         print(f"模板文件: 包含 {len(docs)} 个YAML文档，使用第一个文档")
-                    
+
                     if template_data is None:
                         template_data = {}
                         print(f"警告: 模板文件 {args.template_file} 内容为空或无效。")
@@ -683,7 +683,7 @@ def main():
 
     # 检查是否有任何修改参数
     if (args.frequency is None and args.use_only_main_camera is None and 
-        args.image_delay is None and args.wheel_delay is None and 
+        args.image_delay is None and args.wheel_delay is None and
         args.sigma_omega is None and args.sigma_v is None and
         args.unobs_info is None and args.detection_threshold is None and
         args.matching_threshold is None and args.max_num_keypoints is None and
@@ -706,15 +706,15 @@ def main():
     for file_path in yaml_files:
         if args.debug:
             print(f"\n处理文件: {file_path}")
-            
+
         # 修改YAML文件
         if modify_yaml_file(
-            file_path, 
-            template_data, 
-            args.frequency, 
-            args.use_only_main_camera, 
-            args.image_delay, 
-            args.wheel_delay, 
+            file_path,
+            template_data,
+            args.frequency,
+            args.use_only_main_camera,
+            args.image_delay,
+            args.wheel_delay,
             args.sigma_omega,
             args.sigma_v,
             args.unobs_info,
@@ -730,7 +730,7 @@ def main():
             success_count += 1
         elif args.debug:
             print(f"文件 {file_path} 处理失败。")
-            
+
     print(f"\n成功处理文件数: {success_count}/{len(yaml_files)}")
 
 if __name__ == "__main__":
