@@ -46,6 +46,7 @@ def merge_dicts(target, source, file_path="未知文件"):
 
 def modify_specific_parameters_in_dict(yaml_data, file_path, new_frequency=None, use_only_main_camera=None, 
                                      new_image_delay=None, new_wheel_delay=None, new_sigma_omega=None,
+                                     new_sigma_v=None, new_unobs_info=None,
                                      detection_threshold=None, matching_threshold=None, max_num_keypoints=None,
                                      enable_debug_recording=None, use_async_processing=None, online_mode=None,
                                      max_batch_size=None):
@@ -187,6 +188,36 @@ def modify_specific_parameters_in_dict(yaml_data, file_path, new_frequency=None,
             print(f"  添加sigma_omega: {new_sigma_omega}")
             modified = True
     
+    # 修改sigma_v参数
+    if new_sigma_v is not None and 'wheel_encoder_parameters' in yaml_data:
+        if 'sigma_v' in yaml_data['wheel_encoder_parameters']:
+            old_value = yaml_data['wheel_encoder_parameters']['sigma_v']
+            yaml_data['wheel_encoder_parameters']['sigma_v'] = float(new_sigma_v)
+            print(f"修改文件: {file_path}")
+            print(f"  sigma_v: {old_value} -> {new_sigma_v}")
+            modified = True
+        else:
+            # 如果不存在，添加参数
+            yaml_data['wheel_encoder_parameters']['sigma_v'] = float(new_sigma_v)
+            print(f"修改文件: {file_path}")
+            print(f"  添加sigma_v: {new_sigma_v}")
+            modified = True
+            
+    # 修改unobs_info参数
+    if new_unobs_info is not None and 'wheel_encoder_parameters' in yaml_data:
+        if 'unobs_info' in yaml_data['wheel_encoder_parameters']:
+            old_value = yaml_data['wheel_encoder_parameters']['unobs_info']
+            yaml_data['wheel_encoder_parameters']['unobs_info'] = float(new_unobs_info)
+            print(f"修改文件: {file_path}")
+            print(f"  unobs_info: {old_value} -> {new_unobs_info}")
+            modified = True
+        else:
+            # 如果不存在，添加参数
+            yaml_data['wheel_encoder_parameters']['unobs_info'] = float(new_unobs_info)
+            print(f"修改文件: {file_path}")
+            print(f"  添加unobs_info: {new_unobs_info}")
+            modified = True
+    
     # 修改enable_debug_recording参数
     if enable_debug_recording is not None and 'output_parameters' in yaml_data:
         if 'enable_debug_recording' in yaml_data['output_parameters']:
@@ -253,6 +284,7 @@ def modify_specific_parameters_in_dict(yaml_data, file_path, new_frequency=None,
 
 def modify_yaml_file(file_path, template_data=None, new_frequency=None, use_only_main_camera=None, 
                         new_image_delay=None, new_wheel_delay=None, new_sigma_omega=None, 
+                        new_sigma_v=None, new_unobs_info=None,
                         detection_threshold=None, matching_threshold=None, max_num_keypoints=None, 
                         enable_debug_recording=None, use_async_processing=None, online_mode=None,
                         max_batch_size=None, debug=False):
@@ -362,6 +394,8 @@ def modify_yaml_file(file_path, template_data=None, new_frequency=None, use_only
         new_image_delay, 
         new_wheel_delay, 
         new_sigma_omega,
+        new_sigma_v,
+        new_unobs_info,
         detection_threshold,
         matching_threshold,
         max_num_keypoints,
@@ -552,6 +586,10 @@ def _write_regular_parameters(file, section_data):
                 file.write(f"    {key}: {value} # [s] timestamp_wheel_correct = timestamp_wheel - wheel_delay\n")
             elif key == "sigma_omega":
                 file.write(f"    {key}: {value} # angular velocity noise [rad/s]\n")
+            elif key == "sigma_v":
+                file.write(f"    {key}: {value} # linear velocity noise [m/s]\n")
+            elif key == "unobs_info":
+                file.write(f"    {key}: {value} # unobservable state information matrix value\n")
             elif key == "use_only_main_camera":
                 file.write(f"    {key}: {str(value).lower()} # if true, only camera0 is used for matchToMap and other operations (except matchStereo)\n")
             elif key == "image_delay":
@@ -584,6 +622,8 @@ def main():
     parser.add_argument('--image-delay', type=float, help='设置image_delay参数值')
     parser.add_argument('--wheel-delay', type=float, help='设置wheel_delay参数值')
     parser.add_argument('--sigma-omega', type=float, help='设置sigma_omega参数值')
+    parser.add_argument('--sigma-v', type=float, help='设置sigma_v参数值')
+    parser.add_argument('--unobs-info', type=float, help='设置unobs_info参数值')
     parser.add_argument('--detection-threshold', type=float, help='设置detection_threshold参数值')
     parser.add_argument('--matching-threshold', type=float, help='设置matching_threshold参数值')
     parser.add_argument('--max-num-keypoints', type=int, help='设置max_num_keypoints参数值')
@@ -644,7 +684,8 @@ def main():
     # 检查是否有任何修改参数
     if (args.frequency is None and args.use_only_main_camera is None and 
         args.image_delay is None and args.wheel_delay is None and 
-        args.sigma_omega is None and args.detection_threshold is None and
+        args.sigma_omega is None and args.sigma_v is None and
+        args.unobs_info is None and args.detection_threshold is None and
         args.matching_threshold is None and args.max_num_keypoints is None and
         args.enable_debug_recording is None and args.use_async_processing is None and
         args.online_mode is None and args.max_batch_size is None and
@@ -675,6 +716,8 @@ def main():
             args.image_delay, 
             args.wheel_delay, 
             args.sigma_omega,
+            args.sigma_v,
+            args.unobs_info,
             args.detection_threshold,
             args.matching_threshold,
             args.max_num_keypoints,
