@@ -1,0 +1,121 @@
+%YAML:1.0
+---
+cameras:
+     - {T_SC:
+        [0.01329600, -0.99991100, -0.00068700, 0.00700100,
+        -0.99991000, -0.01329700, 0.00175000, 0.03327400,
+        -0.00175900, 0.00066400, -0.99999800, -0.02083400,
+        0.00000000, 0.00000000, 0.00000000, 1.00000000],
+        image_dimension: [640, 544],
+        distortion_coefficients: [17.9954810000000016, 12.5777009999999994, 0.0001150000000000, -0.0000680000000000,
+            0.7026090000000000, 18.3171080000000011, 18.2157690000000017, 3.0727549999999999],
+        distortion_type: radialtangential8,
+        focal_length: [310.21514900000000, 310.00466899999998],
+        principal_point: [307.96823100000000, 273.68930100000000],
+        camera_type: gray, #gray, rgb, gray+depth, rgb+depth
+        slam_use: okvis} #none, okvis, okvis-depth, okvis-virtual
+     - {T_SC:
+        [-0.00035000, -1.00000000, 0.00040200, 0.00698200,
+        -0.99999900, 0.00035000, -0.00101900, -0.03169300,
+        0.00101900, -0.00040200, -0.99999900, -0.02100800,
+        0.00000000, 0.00000000, 0.00000000, 1.00000000],
+        image_dimension: [640, 544],
+        distortion_coefficients: [13.4314839999999993, 7.1348419999999999, -0.0000380000000000, 0.0001030000000000,
+            0.3128370000000000, 13.7693809999999992, 11.2126769999999993, 1.5124439999999999],
+        distortion_type: radialtangential8,
+        focal_length: [308.98147599999999, 308.67153900000000],
+        principal_point: [323.18673699999999, 275.11053500000003],
+        camera_type: gray, #gray, rgb, gray+depth, rgb+depth
+        slam_use: okvis}
+
+
+# camera parameters
+camera_parameters:
+    timestamp_tolerance: 0.005
+    sync_cameras: [ 0, 1 ]
+    image_delay: 0.0 # [s] timestamp_camera_correct = timestamp_camera - image_delay
+    online_calibration:
+        do_extrinsics: True
+        do_extrinsics_final_ba: False
+        sigma_r: 0.001
+        sigma_alpha: 0.005
+    image_frequency: 30.0
+    start_time: 0.0
+
+# imu parameters
+imu_parameters:
+    use: True
+    a_max: 176.0
+    g_max: 7.8
+    sigma_g_c: 0.002
+    sigma_a_c: 0.02
+    sigma_bg: 0.01
+    sigma_ba: 0.1
+    sigma_gw_c: 2e-05
+    sigma_aw_c: 0.002
+    g: 9.81007
+    g0: [ 0.001, 0.001, 0.002 ]
+    a0: [ 0.1, -0.04, -0.12 ]
+    # transform Body-Sensor (IMU)
+    T_BS:
+        [1.0000, 0.0000, 0.0000, 0.0000,
+         0.0000, 1.0000, 0.0000, 0.0000,
+         0.0000, 0.0000, 1.0000, 0.0000,
+         0.0000, 0.0000, 0.0000, 1.0000]
+
+# wheel encoder parameters
+wheel_encoder_parameters:
+    use: True
+    wheel_delay: 0.0
+    sigma_v: 0.1
+    sigma_omega: 10.0
+    perimeter: 0.7477
+    halflength: 0.1775
+    scale: 1194.0
+    max_wheel_delta: 1.0
+    unobs_info: 1e-4
+    # transform Body-Sensor (WheelEncoder)
+    T_BS:
+        [0.15454300, -0.00207500, 0.98798400, -0.13308600,
+         0.01392800, 0.99990300, -0.00007900, -0.00743900,
+         -0.98788800, 0.01377200, 0.15455700, 0.36679500,
+         0.00000000, 0.00000000, 0.00000000, 1.00000000]
+
+# frontend parameters
+frontend_parameters:
+    detection_threshold: 38.0 # detection threshold. By default the uniformity radius in pixels
+    absolute_threshold: 100.0
+    matching_threshold: 120.0 # BRISK descriptor matching threshold
+    octaves: 0
+    max_num_keypoints: 600 # restrict to a maximum of this many keypoints per image (strongest ones)
+    keyframe_overlap: 0.58
+    use_cnn: False
+    parallelise_detection: True
+    num_matching_threads: 4
+    use_only_main_camera: true # if true, only camera0 is used for matchToMap and other operations (except matchStereo)
+
+# estimator parameters
+estimator_parameters:
+    num_keyframes: 4
+    num_loop_closure_frames: 2
+    num_imu_frames: 2
+    do_loop_closures: False
+    do_final_ba: False
+    enforce_realtime: False
+    realtime_min_iterations: 3
+    realtime_max_iterations: 5
+    realtime_time_limit: 0.03
+    realtime_num_threads: 4
+    full_graph_iterations: 15
+    full_graph_num_threads: 2
+    online_mode: True
+    use_async_processing: True
+    max_batch_size: 2
+
+# output parameters
+output_parameters:
+    display_matches: False
+    display_overhead: False
+    display_rerun: false
+    enable_debug_recording: false # enable debug recording of frontend/backend packages
+    debug_output_dir: "/tmp/okvis_debug_output" # directory for debug output files
