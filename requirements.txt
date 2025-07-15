@@ -4,4 +4,7 @@ scipy>=1.6.0
 opencv-python>=4.5.0
 rospkg
 rosbag
-cv_bridge 
+cv_bridge
+pandas
+plotly
+kaleido 

@@ -39,7 +39,7 @@ camera_parameters:
         do_extrinsics_final_ba: False
         sigma_r: 0.001
         sigma_alpha: 0.005
-    image_frequency: 30.0
+    image_frequency: 12.0
     start_time: 0.0
 
 # imu parameters
@@ -67,13 +67,13 @@ imu_parameters:
 wheel_encoder_parameters:
     use: True
     wheel_delay: 0.0
-    sigma_v: 0.1
-    sigma_omega: 10.0
+    sigma_v: 0.01
+    sigma_omega: 0.5
     perimeter: 0.7477
     halflength: 0.1775
     scale: 1194.0
     max_wheel_delta: 1.0
-    unobs_info: 1e-4
+    unobs_info: 1.0
     # transform Body-Sensor (WheelEncoder)
     T_BS:
         [0.15454300, -0.00207500, 0.98798400, -0.13308600,
@@ -83,16 +83,18 @@ wheel_encoder_parameters:
 
 # frontend parameters
 frontend_parameters:
-    detection_threshold: 38.0 # detection threshold. By default the uniformity radius in pixels
+    detection_threshold: 40.0 # detection threshold. By default the uniformity radius in pixels
     absolute_threshold: 100.0
-    matching_threshold: 120.0 # BRISK descriptor matching threshold
+    matching_threshold: 100.0 # BRISK descriptor matching threshold
     octaves: 0
-    max_num_keypoints: 600 # restrict to a maximum of this many keypoints per image (strongest ones)
+    max_num_keypoints: 400 # restrict to a maximum of this many keypoints per image (strongest ones)
     keyframe_overlap: 0.58
     use_cnn: False
     parallelise_detection: True
     num_matching_threads: 4
     use_only_main_camera: true # if true, only camera0 is used for matchToMap and other operations (except matchStereo)
+    max_frame_gap_seconds: 2.0 # maximum frame gap in seconds (trigger deactivation)
+    use_detect_async_processing: true # enable asynchronous detection
 
 # estimator parameters
 estimator_parameters:
@@ -108,9 +110,9 @@ estimator_parameters:
     realtime_num_threads: 4
     full_graph_iterations: 15
     full_graph_num_threads: 2
-    online_mode: True
-    use_async_processing: True
-    max_batch_size: 2
+    online_mode: true # whether to run in online mode
+    use_async_processing: true # enable asynchronous frontend/backend processing
+    max_batch_size: 3 # maximum number of frontend packages to batch for backend processing
 
 # output parameters
 output_parameters:

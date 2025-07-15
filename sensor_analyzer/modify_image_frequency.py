@@ -49,7 +49,8 @@ def modify_specific_parameters_in_dict(yaml_data, file_path, new_frequency=None,
                                      new_sigma_v=None, new_unobs_info=None,
                                      detection_threshold=None, matching_threshold=None, max_num_keypoints=None,
                                      enable_debug_recording=None, use_async_processing=None, online_mode=None,
-                                     max_batch_size=None):
+                                     max_batch_size=None, max_frame_gap_seconds=None, use_detect_async_processing=None,
+                                     display_rerun=None):
     """修改YAML数据字典中的特定参数"""
     modified = False
 
@@ -57,12 +58,19 @@ def modify_specific_parameters_in_dict(yaml_data, file_path, new_frequency=None,
         return modified
 
     # 修改image_frequency参数
-    if new_frequency is not None and 'image_frequency' in yaml_data:
-        old_frequency = yaml_data['image_frequency']
-        yaml_data['image_frequency'] = new_frequency
+    if new_frequency is not None and 'camera_parameters' in yaml_data:
+        if 'image_frequency' in yaml_data['camera_parameters']:
+            old_frequency = yaml_data['camera_parameters']['image_frequency']
+            yaml_data['camera_parameters']['image_frequency'] = new_frequency
         print(f"修改文件: {file_path}")
         print(f"  image_frequency: {old_frequency} -> {new_frequency}")
         modified = True
+        else:
+            # 如果不存在，添加参数
+            yaml_data['camera_parameters']['image_frequency'] = new_frequency
+            print(f"修改文件: {file_path}")
+            print(f"  添加image_frequency: {new_frequency}")
+            modified = True
 
     # 修改frontend_parameters部分的参数
     if 'frontend_parameters' in yaml_data:
@@ -124,6 +132,36 @@ def modify_specific_parameters_in_dict(yaml_data, file_path, new_frequency=None,
                 yaml_data['frontend_parameters']['max_num_keypoints'] = int(max_num_keypoints)
                 print(f"修改文件: {file_path}")
                 print(f"  添加max_num_keypoints: {max_num_keypoints}")
+                modified = True
+
+        # 修改max_frame_gap_seconds参数
+        if max_frame_gap_seconds is not None:
+            if 'max_frame_gap_seconds' in yaml_data['frontend_parameters']:
+                old_value = yaml_data['frontend_parameters']['max_frame_gap_seconds']
+                yaml_data['frontend_parameters']['max_frame_gap_seconds'] = float(max_frame_gap_seconds)
+                print(f"修改文件: {file_path}")
+                print(f"  max_frame_gap_seconds: {old_value} -> {max_frame_gap_seconds}")
+                modified = True
+            else:
+                # 如果不存在，添加参数
+                yaml_data['frontend_parameters']['max_frame_gap_seconds'] = float(max_frame_gap_seconds)
+                print(f"修改文件: {file_path}")
+                print(f"  添加max_frame_gap_seconds: {max_frame_gap_seconds}")
+                modified = True
+
+        # 修改use_detect_async_processing参数
+        if use_detect_async_processing is not None:
+            if 'use_detect_async_processing' in yaml_data['frontend_parameters']:
+                old_value = yaml_data['frontend_parameters']['use_detect_async_processing']
+                yaml_data['frontend_parameters']['use_detect_async_processing'] = use_detect_async_processing == 'True'
+                print(f"修改文件: {file_path}")
+                print(f"  use_detect_async_processing: {old_value} -> {use_detect_async_processing}")
+                modified = True
+            else:
+                # 如果不存在，添加参数
+                yaml_data['frontend_parameters']['use_detect_async_processing'] = use_detect_async_processing == 'True'
+                print(f"修改文件: {file_path}")
+                print(f"  添加use_detect_async_processing: {use_detect_async_processing}")
                 modified = True
 
     # 修改image_delay参数
@@ -233,6 +271,21 @@ def modify_specific_parameters_in_dict(yaml_data, file_path, new_frequency=None,
             print(f"  添加enable_debug_recording: {enable_debug_recording}")
             modified = True
 
+    # 修改display_rerun参数
+    if display_rerun is not None and 'output_parameters' in yaml_data:
+        if 'display_rerun' in yaml_data['output_parameters']:
+            old_value = yaml_data['output_parameters']['display_rerun']
+            yaml_data['output_parameters']['display_rerun'] = display_rerun == 'True'
+            print(f"修改文件: {file_path}")
+            print(f"  display_rerun: {old_value} -> {display_rerun}")
+            modified = True
+        else:
+            # 如果不存在，添加参数
+            yaml_data['output_parameters']['display_rerun'] = display_rerun == 'True'
+            print(f"修改文件: {file_path}")
+            print(f"  添加display_rerun: {display_rerun}")
+            modified = True
+
     # 修改estimator_parameters部分的参数
     if 'estimator_parameters' in yaml_data:
         # 修改use_async_processing参数
@@ -287,7 +340,8 @@ def modify_yaml_file(file_path, template_data=None, new_frequency=None, use_only
                         new_sigma_v=None, new_unobs_info=None,
                         detection_threshold=None, matching_threshold=None, max_num_keypoints=None,
                         enable_debug_recording=None, use_async_processing=None, online_mode=None,
-                        max_batch_size=None, debug=False):
+                        max_batch_size=None, max_frame_gap_seconds=None, use_detect_async_processing=None, 
+                        display_rerun=None, debug=False):
     """修改YAML文件，可以从模板添加缺失参数，并更新指定的参数值"""
     raw_content = None
     try:
@@ -402,7 +456,10 @@ def modify_yaml_file(file_path, template_data=None, new_frequency=None, use_only
         enable_debug_recording,
         use_async_processing,
         online_mode,
-        max_batch_size
+        max_batch_size,
+        max_frame_gap_seconds,
+        use_detect_async_processing,
+        display_rerun
     )
 
     # 确定是否需要写回文件
@@ -600,8 +657,14 @@ def _write_regular_parameters(file, section_data):
                 file.write(f"    {key}: {value} # BRISK descriptor matching threshold\n")
             elif key == "max_num_keypoints":
                 file.write(f"    {key}: {value} # restrict to a maximum of this many keypoints per image (strongest ones)\n")
+            elif key == "max_frame_gap_seconds":
+                file.write(f"    {key}: {value} # maximum frame gap in seconds (trigger deactivation)\n")
+            elif key == "use_detect_async_processing":
+                file.write(f"    {key}: {str(value).lower()} # enable asynchronous detection\n")
             elif key == "enable_debug_recording":
                 file.write(f"    {key}: {str(value).lower()} # enable debug recording of frontend/backend packages\n")
+            elif key == "display_rerun":
+                file.write(f"    {key}: {str(value).lower()} # display rerun information\n")
             elif key == "use_async_processing":
                 file.write(f"    {key}: {str(value).lower()} # enable asynchronous frontend/backend processing\n")
             elif key == "online_mode":
@@ -628,9 +691,12 @@ def main():
     parser.add_argument('--matching-threshold', type=float, help='设置matching_threshold参数值')
     parser.add_argument('--max-num-keypoints', type=int, help='设置max_num_keypoints参数值')
     parser.add_argument('--enable-debug-recording', choices=['True', 'False'], help='设置enable_debug_recording参数值')
+    parser.add_argument('--display-rerun', choices=['True', 'False'], help='设置display_rerun参数值')
     parser.add_argument('--use-async-processing', choices=['True', 'False'], help='设置use_async_processing参数值')
     parser.add_argument('--online-mode', choices=['True', 'False'], help='设置online_mode参数值')
     parser.add_argument('--max-batch-size', type=int, help='设置max_batch_size参数值')
+    parser.add_argument('--max-frame-gap-seconds', type=float, help='设置max_frame_gap_seconds参数值')
+    parser.add_argument('--use-detect-async-processing', choices=['True', 'False'], help='设置use_detect_async_processing参数值')
     parser.add_argument('--debug', action='store_true', help='启用调试模式，打印详细日志')
     parser.add_argument('--format-only', action='store_true', help='仅格式化文件，不修改参数')
     args = parser.parse_args()
@@ -687,8 +753,10 @@ def main():
         args.sigma_omega is None and args.sigma_v is None and
         args.unobs_info is None and args.detection_threshold is None and
         args.matching_threshold is None and args.max_num_keypoints is None and
-        args.enable_debug_recording is None and args.use_async_processing is None and
+        args.enable_debug_recording is None and args.display_rerun is None and 
+        args.use_async_processing is None and
         args.online_mode is None and args.max_batch_size is None and
+        args.max_frame_gap_seconds is None and args.use_detect_async_processing is None and
         template_data is None and not args.format_only):
         parser.error("请至少指定一个要修改的参数或提供模板文件。")
     
@@ -710,22 +778,25 @@ def main():
         # 修改YAML文件
         if modify_yaml_file(
             file_path,
-            template_data,
-            args.frequency,
-            args.use_only_main_camera,
-            args.image_delay,
-            args.wheel_delay,
-            args.sigma_omega,
-            args.sigma_v,
-            args.unobs_info,
-            args.detection_threshold,
-            args.matching_threshold,
-            args.max_num_keypoints,
-            args.enable_debug_recording,
-            args.use_async_processing,
-            args.online_mode,
-            args.max_batch_size,
-            args.debug
+            template_data=template_data,
+            new_frequency=args.frequency,
+            use_only_main_camera=args.use_only_main_camera,
+            new_image_delay=args.image_delay,
+            new_wheel_delay=args.wheel_delay,
+            new_sigma_omega=args.sigma_omega,
+            new_sigma_v=args.sigma_v,
+            new_unobs_info=args.unobs_info,
+            detection_threshold=args.detection_threshold,
+            matching_threshold=args.matching_threshold,
+            max_num_keypoints=args.max_num_keypoints,
+            enable_debug_recording=args.enable_debug_recording,
+            use_async_processing=args.use_async_processing,
+            online_mode=args.online_mode,
+            max_batch_size=args.max_batch_size,
+            max_frame_gap_seconds=args.max_frame_gap_seconds,
+            use_detect_async_processing=args.use_detect_async_processing,
+            display_rerun=args.display_rerun,
+            debug=args.debug
         ):
             success_count += 1
         elif args.debug:
