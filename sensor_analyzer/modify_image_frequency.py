@@ -88,6 +88,12 @@ PARAM_CONFIG = {
         'description': '设置wheel_delay参数值',
         'comment': '[s] timestamp_wheel_correct = timestamp_wheel - wheel_delay'
     },
+    'wheel_encoder_use': {
+        'path': ['wheel_encoder_parameters', 'use'],
+        'type': bool,
+        'description': '设置wheel_encoder_parameters的use参数值',
+        'comment': '是否启用wheel encoder'
+    },
     'sigma_omega': {
         'path': ['wheel_encoder_parameters', 'sigma_omega'],
         'type': float,

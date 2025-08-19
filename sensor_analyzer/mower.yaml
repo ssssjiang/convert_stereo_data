@@ -35,7 +35,7 @@ camera_parameters:
     sync_cameras: [ 0, 1 ]
     image_delay: 0.0 # [s] timestamp_camera_correct = timestamp_camera - image_delay
     online_calibration:
-        do_extrinsics: True
+        do_extrinsics: True # whether to perform online extrinsics calibration
         do_extrinsics_final_ba: False
         sigma_r: 0.001
         sigma_alpha: 0.005
@@ -65,7 +65,8 @@ imu_parameters:
 
 # wheel encoder parameters
 wheel_encoder_parameters:
-    use: True
+    use: False
+    initialize_velocity: True
     wheel_delay: 0.0
     sigma_v: 0.01
     sigma_omega: 0.5
@@ -83,8 +84,8 @@ wheel_encoder_parameters:
 
 # frontend parameters
 frontend_parameters:
-    detection_threshold: 40.0 # detection threshold. By default the uniformity radius in pixels
-    absolute_threshold: 100.0
+    detection_threshold: 50.0 # detection threshold. By default the uniformity radius in pixels
+    absolute_threshold: 20.0 # absolute threshold for feature detection
     matching_threshold: 100.0 # BRISK descriptor matching threshold
     octaves: 0
     max_num_keypoints: 400 # restrict to a maximum of this many keypoints per image (strongest ones)
@@ -94,7 +95,8 @@ frontend_parameters:
     num_matching_threads: 4
     use_only_main_camera: true # if true, only camera0 is used for matchToMap and other operations (except matchStereo)
     max_frame_gap_seconds: 2.0 # maximum frame gap in seconds (trigger deactivation)
-    use_detect_async_processing: true # enable asynchronous detection
+    use_detect_async_processing: False # enable asynchronous detection
+    lost_count_thresh: 3
 
 # estimator parameters
 estimator_parameters:
@@ -110,14 +112,14 @@ estimator_parameters:
     realtime_num_threads: 4
     full_graph_iterations: 15
     full_graph_num_threads: 2
-    online_mode: true # whether to run in online mode
+    online_mode: false # whether to run in online mode
     use_async_processing: true # enable asynchronous frontend/backend processing
-    max_batch_size: 3 # maximum number of frontend packages to batch for backend processing
+    max_batch_size: 2 # maximum number of frontend packages to batch for backend processing
 
 # output parameters
 output_parameters:
     display_matches: False
     display_overhead: False
-    display_rerun: false
-    enable_debug_recording: false # enable debug recording of frontend/backend packages
-    debug_output_dir: "/tmp/okvis_debug_output" # directory for debug output files
+    display_rerun: False # display rerun information
+    enable_debug_recording: False # enable debug recording of frontend/backend packages
+    debug_output_dir: /tmp/okvis_debug_output
